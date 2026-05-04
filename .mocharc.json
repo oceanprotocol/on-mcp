@@ -1,0 +1,8 @@
+{
+  "full-trace": true,
+  "bail": true,
+  "exit": true,
+  "timeout": 20000,
+  "recursive": true,
+  "require": ["./dist/test/utils/hooks.js"]
+}

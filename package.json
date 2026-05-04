@@ -1,0 +1,80 @@
+{
+  "name": "on-mcp",
+  "version": "0.0.1",
+  "description": "MCP Server for Ocean Network",
+  "author": "Ocean Protocol Foundation",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "index.js",
+  "bugs": {
+    "url": "https://github.com/oceanprotocol/on-mcp/issues"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run build:tsc",
+    "build:tsc": "tsc --sourceMap",
+    "dev": "npx @modelcontextprotocol/inspector tsx src/index.ts",
+    "dev:server": "tsx src/index.ts",
+    "clean": "if [ -d ./dist ]; then find ./dist -mindepth 1 -delete; fi",
+    "clean:all": "rm -rf ./dist/ ./doc/ ./.nyc_output",
+    "build-tests": "rm -rf ./dist/test && npm run build-tests:tsc",
+    "start": "node --max-old-space-size=28784 --trace-warnings --experimental-specifier-resolution=node dist/index.js",
+    "lint": "eslint --ignore-path .gitignore --ext .ts,.tsx . && npm run type-check",
+    "lint:fix": "eslint --ignore-path .gitignore --ext .ts,.tsx . --fix",
+    "format": "prettier --parser typescript --ignore-path .gitignore --write '**/*.{js,jsx,ts,tsx}'",
+    "type-check": "tsc --noEmit",
+    "check-nonce": "npm run build && node dist/helpers/scripts/checkNonceTracking.js",
+    "mocha": "mocha --node-env=test --config .mocharc.json",
+    "mocha-light": "mocha --node-env=test --config .mocharc.json --exclude \"./dist/test/integration/compute.test.js\"",
+    "test": "npm run lint && npm run test:unit:cover && npm run test:integration:cover",
+    "test:unit": "npm run build-tests && npm run mocha \"./dist/test/unit/**/*.test.js\"",
+    "test:integration": "npm run build-tests && npm run mocha \"./dist/test/integration/**/*.test.js\"",
+    "release": "release-it --non-interactive",
+    "changelog": "auto-changelog -p"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@multiformats/multiaddr": "^13.0.1",
+    "@oceanprotocol/lib": "^8.1.0",
+    "ethers": "^6.16.0",
+    "express": "^4.21.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.10",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.17",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.0.3",
+    "@typescript-eslint/eslint-plugin": "^6.8.0",
+    "@typescript-eslint/parser": "^6.8.0",
+    "auto-changelog": "^2.4.0",
+    "chai": "^4.3.10",
+    "eslint": "^8.51.0",
+    "eslint-config-oceanprotocol": "^2.0.4",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "eslint-plugin-promise": "^6.1.1",
+    "mocha": "^11.1.0",
+    "nyc": "^17.1.0",
+    "prettier": "^3.7.4",
+    "release-it": "^20.0.0",
+    "sinon": "^19.0.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.9.3"
+  },
+  "release-it": {
+    "hooks": {
+      "after:bump": "npm run changelog"
+    },
+    "plugins": {},
+    "git": {
+      "tagName": "v${version}"
+    },
+    "github": {
+      "release": true
+    },
+    "npm": {
+      "publish": false
+    }
+  }
+}
