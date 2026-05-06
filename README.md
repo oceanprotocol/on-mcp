@@ -12,6 +12,7 @@ The server name reported to clients is `ocean-mcp` (see `src/server/createServer
 - **MCP tools:** Dozens of tools wrap node status, DHT `find_provider` discovery (including C2D capacity search strings), DDO resolution and validation, compute lifecycle (initialize, start, stop, status, results, logs), downloads, encryption helpers, auth tokens, policy-server flows, persistent storage, admin config, and peer utilities.
 - **MCP resources:** Static documentation is exposed for C2D provider discovery (URI `ocean://docs/c2d-find-provider-search`) so agents can fetch how `find_provider` and `buildFindProviderC2dContent` align with ocean-node announcements.
 - **Transports:** Supports **stdio** (typical for local editors and Claude Desktop) and **Streamable HTTP** (`MCP_TRANSPORT=sse`) for remote or containerized deployments.
+- **EVM (optional):** If `EVM_CHAIN_RPCS` is set, the process builds an ethers **FallbackProvider** per chain; upcoming tools will use these for on-chain operations.
 
 ---
 
@@ -25,6 +26,8 @@ The server name reported to clients is `ocean-mcp` (see `src/server/createServer
 | `src/tools/p2pProviderTools.ts` | Registers all active MCP tools (Zod schemas, descriptions for agents). |
 | `src/resources/registerResources.ts` | Registers MCP resources (markdown docs). |
 | `src/config/env.ts` | Reads `NODE_URL`, `RPC`, `CHAIN_ID` for server-side config (defaults and chain context). |
+| `src/evm/chainRpcConfig.ts` | Parses `EVM_CHAIN_RPCS` JSON into per-chain RPC URL lists. |
+| `src/evm/evmProviderRegistry.ts` | One ethers `FallbackProvider` per configured chain (singleton, initialized in `main`). |
 
 
 ---
@@ -95,6 +98,7 @@ npm run dev
 | `MCP_TRANSPORT` | `stdio` (default) or `sse` for Streamable HTTP. |
 | `MCP_HOST` | Bind address for HTTP mode (default `127.0.0.1`). |
 | `MCP_PORT` | Port for HTTP mode (default `3000`). |
+| `EVM_CHAIN_RPCS` | Optional JSON object mapping **chain id strings** to **arrays of RPC URLs** (primary first, fallbacks next). Used to build an ethers v6 `FallbackProvider` per chain for future EVM tools. Example (shell-safe quoting): `EVM_CHAIN_RPCS='{"1":["https://rpc.ankr.com/eth"],"137":["https://polygon-rpc.com"]}'`. Empty or unset means no EVM providers are registered. Invalid JSON causes startup to fail. |
 
 ---
 
@@ -144,6 +148,8 @@ Tools are defined in `src/tools/p2pProviderTools.ts`. Names are stable identifie
 
 **Admin / config:** `fetch_node_config`, `push_node_config`
 
+**EVM escrow and access lists:** `broadcast_transaction`, `escrow_get_funds`, `escrow_get_user_funds`, `escrow_get_user_tokens`, `escrow_get_locks`, `escrow_get_authorizations`, `escrow_deposit`, `escrow_withdraw`, `escrow_authorize`, `accesslist_get_details`, `accesslist_get_token_uri`, `accesslist_mint`, `accesslist_factory_is_deployed`, `accesslist_factory_deploy`
+
 Many tools require targeting a peer via **`nodeId`** and/or **`multiaddress`** (see schemas in `src/tools/p2pSchemas.ts`). Operations that mutate state or access paid resources typically need **`authToken`** or a **`completeSignature`** payload—follow each tool’s description and `P2P_AUTH_SIGNING_GUIDE` in code.
 
 ---
@@ -153,6 +159,7 @@ Many tools require targeting a peer via **`nodeId`** and/or **`multiaddress`** (
 | Name | URI | Content |
 |------|-----|--------|
 | `c2d-find-provider-search` | `ocean://docs/c2d-find-provider-search` | Markdown: how C2D provider strings are advertised and how to combine `find_provider` results for multi-dimensional requirements. |
+| `evm-supported-chains` | `ocean://evm/supported-chains` | JSON: configured EVM chains with latest block number and block timestamp from each chain's fallback provider. |
 
 Agents should **`read_resource`** on this URI when planning C2D discovery or intersecting multiple `find_provider` queries.
 

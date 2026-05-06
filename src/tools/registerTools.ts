@@ -1,14 +1,24 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
 import { NodeClient } from '../clients/nodeClient.js'
+import { registerAssetTools } from './assets.js'
+import { registerEvmContractTools } from './evmContractTools.js'
 import { registerP2pProviderTools } from './p2pProviderTools.js'
 
 type RegisterToolsParams = {
   server: McpServer
   nodeClient: NodeClient
+  evmRegistry: EvmProviderRegistry
 }
 
-export function registerTools({ server, nodeClient }: RegisterToolsParams): void {
+export function registerTools({
+  server,
+  nodeClient,
+  evmRegistry
+}: RegisterToolsParams): void {
   registerP2pProviderTools({ server, nodeClient })
+  registerEvmContractTools({ server, evmRegistry })
+  registerAssetTools({ server, evmRegistry })
 
   /*
   server.registerTool(

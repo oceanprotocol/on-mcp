@@ -1,7 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod/v4'
-import type { DDO } from '@oceanprotocol/ddo-js'
-import { ProviderInstance, PROTOCOL_COMMANDS } from '@oceanprotocol/lib'
+import { DDO, ProviderInstance, PROTOCOL_COMMANDS } from '@oceanprotocol/lib'
 import { NodeClient } from '../clients/nodeClient.js'
 import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
 import { buildC2dProviderSearchContent } from '../utils/c2dProviderSearchString.js'

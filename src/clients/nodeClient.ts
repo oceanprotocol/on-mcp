@@ -1,4 +1,5 @@
 import {
+  DDO,
   ProviderInstance,
   type ComputeAlgorithm,
   type ComputeAsset,
@@ -10,7 +11,6 @@ import {
   type SignerOrAuthTokenOrSignature,
   type StorageObject
 } from '@oceanprotocol/lib'
-import type { DDO } from '@oceanprotocol/ddo-js'
 import type { Multiaddr } from '@multiformats/multiaddr'
 
 type NodeP2P = {

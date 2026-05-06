@@ -5,6 +5,7 @@ import { Wallet } from 'ethers'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
 
+import { initEvmProviderRegistryFromEnv } from './evm/evmProviderRegistry.js'
 import { createServer } from './server/createServer.js'
 import { ProviderInstance } from '@oceanprotocol/lib'
 
@@ -122,6 +123,9 @@ async function main(): Promise<void> {
       'PRIVATE_KEY was not provided; generated an ephemeral random key for this session.'
     )
   }
+
+  initEvmProviderRegistryFromEnv()
+
   const extra = process.env.BOOTSTRAP_PEERS?.split(',').filter(Boolean) || []
 
   // Default Ocean bootstrap nodes (must be included explicitly since passing
