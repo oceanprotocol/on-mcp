@@ -5,6 +5,7 @@ import {
   FixedRateExchange,
   ProviderInstance
 } from '@oceanprotocol/lib'
+import { DDOManager } from '@oceanprotocol/ddo-js'
 import { Contract, formatUnits, getAddress, parseUnits } from 'ethers'
 import { z } from 'zod/v4'
 
@@ -25,25 +26,27 @@ type Params = {
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000'
 
-const assetLikeSchema = z.object({
-  id: z.string().describe('Asset DID'),
-  chainId: z.number().int().positive(),
-  services: z
-    .array(
-      z.object({
-        id: z.string(),
-        datatokenAddress: z.string()
-      })
-    )
-    .min(1),
-  datatokens: z
-    .array(
-      z.object({
-        address: z.string()
-      })
-    )
-    .min(1)
-})
+const assetLikeSchema = z
+  .object({
+    id: z.string().describe('Asset DID'),
+    chainId: z.number().int().positive(),
+    services: z
+      .array(
+        z.object({
+          id: z.string(),
+          datatokenAddress: z.string()
+        })
+      )
+      .min(1),
+    datatokens: z
+      .array(
+        z.object({
+          address: z.string()
+        })
+      )
+      .min(1)
+  })
+  .passthrough()
 
 const providerFeesSchema = z
   .object({
@@ -134,17 +137,15 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
           .positive()
           .describe('EVM chain id configured in EVM_CHAIN_RPCS.'),
         ...unsignedTxInputSchema,
-        asset: assetLikeSchema.describe(
-          'Minimal asset/DDO-like payload needed to order.'
-        ),
-        providerUrl: z
+        did: z
+          .string()
+          .describe('Asset DID to resolve via P2P (this is the asset source).'),
+        serviceId: z
           .string()
           .optional()
-          .describe('Provider URL for ProviderInstance.initialize (optional).'),
-        oceanNodeUri: z
-          .string()
-          .optional()
-          .describe('Fallback Provider URL if providerUrl is not provided.'),
+          .describe(
+            'Service id to select inside the resolved DDO (defaults to services[0].id).'
+          ),
         consumeMarketOrderFee: consumeMarketFeeSchema
           .optional()
           .describe('Optional consume market fee; defaults to zero fee.'),
@@ -157,9 +158,6 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
           .string()
           .optional()
           .describe('Fixed swap fee for consuming the market (default "0").'),
-        datatokenIndex: z.number().int().nonnegative().optional().default(0),
-        serviceIndex: z.number().int().nonnegative().optional().default(0),
-        fixedRateIndex: z.number().int().nonnegative().optional().default(0),
         state: orderAssetStateSchema.describe(
           'Continuation state returned by this tool.'
         ),
@@ -174,26 +172,89 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
     async ({
       chainId,
       from,
-      asset,
-      providerUrl,
-      oceanNodeUri,
+      did,
+      serviceId,
       consumeMarketOrderFee,
       providerFees,
       consumeMarketFixedSwapFee,
-      datatokenIndex,
-      serviceIndex,
-      fixedRateIndex,
       state,
       lastTxHash
     }) => {
       try {
         const provider = getProviderOrThrow(evmRegistry, chainId)
-        const assetParsed = assetLikeSchema.parse(asset)
-        if (assetParsed.chainId !== chainId) {
+        const didToResolve = did
+        const p2p = ProviderInstance.getP2PProvider()
+        const providers = await p2p.getProvidersForString(
+          didToResolve,
+          AbortSignal.timeout(10_000)
+        )
+        const target = providers?.[0]
+        if (!target?.id) {
           throw new Error(
-            `Asset chainId (${assetParsed.chainId}) does not match requested chainId (${chainId}).`
+            `No P2P providers found for did=${didToResolve}. Cannot resolve DDO.`
           )
         }
+
+        const ddo = await p2p.resolveDdo(
+          { nodeId: target.id, multiaddress: target.multiaddrs } as any,
+          didToResolve,
+          AbortSignal.timeout(10_000)
+        )
+
+        const ddoInstance = DDOManager.getDDOClass(ddo as Record<string, any>)
+        const { chainId: ddoChainIdRaw, services: servicesRawFromDdo } =
+          ddoInstance.getDDOFields() as any
+        const { datatokens: datatokensFromDdo } = ddoInstance.getAssetFields() as any
+
+        const ddoChainId = Number(ddoChainIdRaw)
+        if (!Number.isFinite(ddoChainId) || ddoChainId <= 0) {
+          throw new Error(
+            `Resolved DDO for did=${didToResolve} does not include a valid chainId.`
+          )
+        }
+        if (ddoChainId !== chainId) {
+          throw new Error(
+            `Asset chainId (${ddoChainId}) does not match requested chainId (${chainId}).`
+          )
+        }
+
+        const servicesRaw = servicesRawFromDdo
+        if (!Array.isArray(servicesRaw) || servicesRaw.length === 0) {
+          throw new Error(
+            `Resolved DDO for did=${didToResolve} does not contain services[].`
+          )
+        }
+        const services = servicesRaw
+          .map((s: any) => ({
+            id: s?.id,
+            datatokenAddress: s?.datatokenAddress
+          }))
+          .filter(
+            (s: any) => typeof s.id === 'string' && typeof s.datatokenAddress === 'string'
+          )
+
+        if (services.length === 0) {
+          throw new Error(
+            `Resolved DDO for did=${didToResolve} does not contain services with { id, datatokenAddress }.`
+          )
+        }
+
+        const datatokensRaw = datatokensFromDdo
+        const datatokens = Array.isArray(datatokensRaw)
+          ? datatokensRaw
+              .map((dt: any) => ({ address: dt?.address }))
+              .filter((dt: any) => typeof dt.address === 'string')
+          : [...new Set(services.map((s: any) => s.datatokenAddress))].map((addr) => ({
+              address: addr
+            }))
+
+        const assetParsed = assetLikeSchema.parse({
+          id: didToResolve,
+          chainId: ddoChainId,
+          services,
+          datatokens
+        })
+
         const consumeFee =
           consumeMarketOrderFee ||
           ({
@@ -202,14 +263,26 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
             consumeMarketFeeToken: ZERO_ADDRESS
           } as any)
 
-        const dtAddress = getAddress(assetParsed.datatokens[datatokenIndex]?.address)
+        const serviceIndex = serviceId
+          ? assetParsed.services.findIndex((s) => s.id === serviceId)
+          : 0
+        if (serviceIndex < 0) {
+          throw new Error(`Service id=${serviceId} not found in asset.services[].`)
+        }
         const service = assetParsed.services[serviceIndex]
-        if (!dtAddress) {
-          throw new Error(`Invalid datatokenIndex=${datatokenIndex}`)
+        if (!service?.id) throw new Error(`Invalid resolved serviceIndex=${serviceIndex}`)
+
+        const dtIndexByService = assetParsed.datatokens.findIndex(
+          (dt) => getAddress(dt.address) === getAddress(service.datatokenAddress)
+        )
+        const datatokenIndex = dtIndexByService >= 0 ? dtIndexByService : 0
+        const dtAddressRaw = assetParsed.datatokens[datatokenIndex]?.address
+        if (!dtAddressRaw) {
+          throw new Error(
+            `No datatoken found for service.datatokenAddress=${service.datatokenAddress} (and asset.datatokens[0] is missing).`
+          )
         }
-        if (!service?.id) {
-          throw new Error(`Invalid serviceIndex=${serviceIndex}`)
-        }
+        const dtAddress = getAddress(dtAddressRaw)
 
         const datatoken = getDatatoken(evmRegistry, chainId, from)
 
@@ -221,18 +294,40 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
         const pricingType =
           fixedRates.length > 0 ? 'fixed' : dispensers.length > 0 ? 'free' : 'NOT_ALLOWED'
 
+        const fixedRateIndex = 0
         let fees = providerFees as any
         if (!fees) {
-          const url = providerUrl || oceanNodeUri
-          if (!url) {
+          const serviceIdToResolve = serviceId || service.id
+          const resolvedService = servicesRaw.find(
+            (s: any) => s?.id === serviceIdToResolve
+          )
+          if (!resolvedService) {
             throw new Error(
-              'providerFees not provided and no providerUrl/oceanNodeUri provided.'
+              `Service id=${serviceIdToResolve} not found in resolved DDO for did=${didToResolve}.`
             )
           }
+          const endpointCandidate =
+            resolvedService?.serviceEndpoint ??
+            resolvedService?.serviceEndpoint?.uri ??
+            resolvedService?.serviceEndpoint?.url ??
+            resolvedService?.serviceEndpoint?.[0]
+          const url =
+            typeof endpointCandidate === 'string'
+              ? endpointCandidate
+              : typeof endpointCandidate?.url === 'string'
+                ? endpointCandidate.url
+                : undefined
+
+          if (!url) {
+            throw new Error(
+              `Service id=${serviceIdToResolve} in resolved DDO for did=${didToResolve} does not include a usable serviceEndpoint URL.`
+            )
+          }
+
           fees = (
             await ProviderInstance.initialize(
-              assetParsed.id,
-              service.id,
+              didToResolve,
+              serviceIdToResolve,
               0,
               getAddress(from),
               url
@@ -279,25 +374,13 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
 
         if (pricingType === 'free') {
           if (templateIndex === 1) {
-            const dispenser = getDispenser(
-              evmRegistry,
-              chainId,
-              from,
-              (asset as any).dispenserAddress ||
-                (asset as any).config?.dispenserAddress ||
-                (asset as any).dispenser ||
-                ''
-            )
-            if (!dispenser || !(dispenser as any).dispenseTx) {
-              throw new Error(
-                'dispenserAddress is required for free/templateIndex=1 ordering.'
-              )
-            }
             const dispenserAddress =
-              (asset as any).dispenserAddress || (asset as any).config?.dispenserAddress
-            if (!dispenserAddress) {
+              (dispensers as any)?.[0]?.dispenserAddress ||
+              (dispensers as any)?.[0]?.address ||
+              (dispensers as any)?.[0]
+            if (!dispenserAddress || typeof dispenserAddress !== 'string') {
               throw new Error(
-                'dispenserAddress is required in asset payload for free ordering.'
+                'No dispenser address found for free/templateIndex=1 ordering. Ensure the datatoken has a dispenser configured.'
               )
             }
             const dispenser2 = getDispenser(evmRegistry, chainId, from, dispenserAddress)
@@ -325,10 +408,19 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
               tx: { ...startOrderTx, from: getAddress(from), chainId }
             })
           } else if (templateIndex === 2 || templateIndex === 4) {
+            const dispenserAddress =
+              (dispensers as any)?.[0]?.dispenserAddress ||
+              (dispensers as any)?.[0]?.address ||
+              (dispensers as any)?.[0]
+            if (!dispenserAddress || typeof dispenserAddress !== 'string') {
+              throw new Error(
+                'No dispenser address found for free/templateIndex=2/4 ordering. Ensure the datatoken has a dispenser configured.'
+              )
+            }
             const buyTx = await (datatoken as any).buyFromDispenserAndOrderTx(
               service.datatokenAddress,
               orderParams,
-              (asset as any).dispenserAddress || (asset as any).config?.dispenserAddress
+              dispenserAddress
             )
             steps.push({
               id: 'buy_from_dispenser_and_order',
@@ -342,21 +434,17 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
             )
           }
         } else if (pricingType === 'fixed') {
-          const fre = getFixedRateExchange(
-            evmRegistry,
-            chainId,
-            from,
-            (asset as any).fixedRateExchangeAddress ||
-              (asset as any).config?.fixedRateExchangeAddress
-          )
           const frAddress =
-            (asset as any).fixedRateExchangeAddress ||
-            (asset as any).config?.fixedRateExchangeAddress
-          if (!frAddress) {
+            (fixedRates as any)?.[0]?.exchangeContract ||
+            (fixedRates as any)?.[0]?.fixedRateExchangeAddress ||
+            (fixedRates as any)?.[0]?.address ||
+            (fixedRates as any)?.[0]?.contract
+          if (!frAddress || typeof frAddress !== 'string') {
             throw new Error(
-              'fixedRateExchangeAddress is required in asset payload for fixed pricing.'
+              'No fixed rate exchange contract address found for fixed pricing. Ensure the datatoken has at least one fixed rate exchange.'
             )
           }
+          const fre = getFixedRateExchange(evmRegistry, chainId, from, frAddress)
           if (!fixedRates[fixedRateIndex]?.id) {
             throw new Error(`No fixed rate exchange at fixedRateIndex=${fixedRateIndex}`)
           }
@@ -470,6 +558,9 @@ export function registerAssetTools({ server, evmRegistry }: Params): void {
               lastTxHash,
               state: nextState
             })
+          }
+          if (receipt.status === 0) {
+            throw new Error(`Transaction ${lastTxHash} reverted on-chain.`)
           }
           nextState.txHashes = [...nextState.txHashes, lastTxHash]
           nextState.index = nextState.index + 1
