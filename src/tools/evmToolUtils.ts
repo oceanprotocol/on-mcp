@@ -10,6 +10,20 @@ export type EvmToolParams = {
   evmRegistry: EvmProviderRegistry
 }
 
+export function toJsonFriendly(value: unknown): unknown {
+  if (typeof value === 'bigint') return value.toString()
+  if (value === null || value === undefined) return value
+  if (Array.isArray(value)) return value.map(toJsonFriendly)
+  if (typeof value === 'object') {
+    const v = value as Record<string, unknown> & { toJSON?: () => unknown }
+    if (typeof v.toJSON === 'function') return toJsonFriendly(v.toJSON())
+    const out: Record<string, unknown> = {}
+    for (const [k, val] of Object.entries(v)) out[k] = toJsonFriendly(val)
+    return out
+  }
+  return value
+}
+
 export const contractInputSchema = {
   chainId: z
     .number()
@@ -31,7 +45,7 @@ export function commandResultPayload(command: string, result: unknown) {
   return textContent(
     toPrettyJson({
       command,
-      result
+      result: toJsonFriendly(result)
     })
   )
 }

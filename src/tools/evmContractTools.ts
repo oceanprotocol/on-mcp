@@ -9,20 +9,6 @@ import {
   type EvmToolParams
 } from './evmToolUtils.js'
 
-function toJsonFriendly(value: unknown): unknown {
-  if (typeof value === 'bigint') return value.toString()
-  if (value === null || value === undefined) return value
-  if (Array.isArray(value)) return value.map(toJsonFriendly)
-  if (typeof value === 'object') {
-    const v = value as Record<string, unknown> & { toJSON?: () => unknown }
-    if (typeof v.toJSON === 'function') return toJsonFriendly(v.toJSON())
-    const out: Record<string, unknown> = {}
-    for (const [k, val] of Object.entries(v)) out[k] = toJsonFriendly(val)
-    return out
-  }
-  return value
-}
-
 export function registerEvmContractTools({ server, evmRegistry }: EvmToolParams): void {
   server.registerTool(
     'get_balance',
@@ -95,7 +81,7 @@ export function registerEvmContractTools({ server, evmRegistry }: EvmToolParams)
       try {
         const provider = getProviderOrThrow(evmRegistry, chainId)
         const tx = await provider.getTransaction(txHash)
-        return commandResultPayload('get_transaction', toJsonFriendly(tx))
+        return commandResultPayload('get_transaction', tx)
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }
@@ -120,7 +106,7 @@ export function registerEvmContractTools({ server, evmRegistry }: EvmToolParams)
       try {
         const provider = getProviderOrThrow(evmRegistry, chainId)
         const receipt = await provider.getTransactionReceipt(txHash)
-        return commandResultPayload('get_transaction_receipt', toJsonFriendly(receipt))
+        return commandResultPayload('get_transaction_receipt', receipt)
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }
