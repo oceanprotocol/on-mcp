@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
 
 import { ProviderInstance } from '@oceanprotocol/lib'
+import { IncentivesClient } from './clients/incentivesClient.js'
 import { NodeClient } from './clients/nodeClient.js'
 import { loadDocs } from './docs/loader.js'
 import {
@@ -146,10 +147,12 @@ async function startSseServer(serverContext: ServerContext) {
 async function createServerContext(): Promise<ServerContext> {
   const evmRegistry = getEvmProviderRegistry()
   const nodeClient = new NodeClient()
+  const incentivesClient = new IncentivesClient()
   const docsIndex = await loadDocs()
 
   return {
     nodeClient,
+    incentivesClient,
     evmRegistry,
     docsIndex
   }

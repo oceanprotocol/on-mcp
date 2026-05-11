@@ -3,6 +3,7 @@ import type { ServerContext } from '../server/serverContext.js'
 import { registerAssetTools } from './assets.js'
 import { registerDocsTools } from './registerDocsTools.js'
 import { registerEvmContractTools } from './evmContractTools.js'
+import { registerIncentivesTools } from './registerIncentivesTools.js'
 import { registerP2pProviderTools } from './p2pProviderTools.js'
 import { registerResourceTools } from './resourcesTools.js'
 
@@ -13,12 +14,14 @@ type RegisterToolsParams = {
 export function registerTools({
   server,
   nodeClient,
+  incentivesClient,
   evmRegistry,
   docsIndex
 }: RegisterToolsParams): void {
   registerP2pProviderTools({ server, nodeClient })
   registerEvmContractTools({ server, evmRegistry })
   registerAssetTools({ server, evmRegistry })
+  registerIncentivesTools({ server, incentivesClient })
   registerResourceTools({ server, evmRegistry, docsIndex })
   registerDocsTools({ server, docsIndex })
 
