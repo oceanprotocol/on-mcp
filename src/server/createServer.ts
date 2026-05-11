@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { getEvmProviderRegistry } from '../evm/evmProviderRegistry.js'
 import { NodeClient } from '../clients/nodeClient.js'
 import { registerResources } from '../resources/registerResources.js'
 import { registerTools } from '../tools/registerTools.js'
@@ -10,9 +11,10 @@ export function createServer(): McpServer {
   })
 
   const nodeClient = new NodeClient()
+  const evmRegistry = getEvmProviderRegistry()
 
-  registerTools({ server, nodeClient })
-  registerResources({ server, nodeClient })
+  registerTools({ server, nodeClient, evmRegistry })
+  registerResources({ server, nodeClient, evmRegistry })
 
   return server
 }

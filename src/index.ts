@@ -5,6 +5,10 @@ import { Wallet } from 'ethers'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
 
+import {
+  getEvmProviderRegistry,
+  initEvmProviderRegistryFromEnv
+} from './evm/evmProviderRegistry.js'
 import { createServer } from './server/createServer.js'
 import { ProviderInstance } from '@oceanprotocol/lib'
 
@@ -29,6 +33,27 @@ console.error('LOGGING INITIALIZED')
 const transportMode = (process.env.MCP_TRANSPORT ?? 'stdio').toLowerCase()
 const ssePort = process.env.MCP_PORT ? Number(process.env.MCP_PORT) : 3000
 const sseHost = process.env.MCP_HOST ?? '127.0.0.1'
+
+let isShuttingDown = false
+async function shutdown(signal: string) {
+  if (isShuttingDown) return
+  isShuttingDown = true
+
+  try {
+    await getEvmProviderRegistry().destroy()
+  } catch (error) {
+    console.error(`[${signal}] Failed to destroy EVM provider registry:`, error)
+  } finally {
+    process.exit(0)
+  }
+}
+
+process.on('SIGINT', () => {
+  shutdown('SIGINT').catch((error) => console.error('[SIGINT] Shutdown failed:', error))
+})
+process.on('SIGTERM', () => {
+  shutdown('SIGTERM').catch((error) => console.error('[SIGTERM] Shutdown failed:', error))
+})
 
 async function startStdioServer() {
   const server = createServer()
@@ -122,6 +147,9 @@ async function main(): Promise<void> {
       'PRIVATE_KEY was not provided; generated an ephemeral random key for this session.'
     )
   }
+
+  initEvmProviderRegistryFromEnv()
+
   const extra = process.env.BOOTSTRAP_PEERS?.split(',').filter(Boolean) || []
 
   // Default Ocean bootstrap nodes (must be included explicitly since passing

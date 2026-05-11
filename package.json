@@ -16,7 +16,7 @@
     "dev:server": "tsx src/index.ts",
     "clean": "if [ -d ./dist ]; then find ./dist -mindepth 1 -delete; fi",
     "clean:all": "rm -rf ./dist/ ./doc/ ./.nyc_output",
-    "build-tests": "rm -rf ./dist/test && npm run build-tests:tsc",
+    "build-tests": "npm run build",
     "start": "node --max-old-space-size=28784 --trace-warnings --experimental-specifier-resolution=node dist/index.js",
     "lint": "eslint --ignore-path .gitignore --ext .ts,.tsx . && npm run type-check",
     "lint:fix": "eslint --ignore-path .gitignore --ext .ts,.tsx . --fix",
@@ -34,7 +34,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@multiformats/multiaddr": "^13.0.1",
-    "@oceanprotocol/lib": "^8.1.0",
+    "@oceanprotocol/lib": "^8.2.0",
     "ethers": "^6.16.0",
     "express": "^4.21.1",
     "zod": "^4.3.6"
