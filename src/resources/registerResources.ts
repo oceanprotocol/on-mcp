@@ -1,106 +1,43 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
-import { NodeClient } from '../clients/nodeClient.js'
-import { C2D_FIND_PROVIDER_RESOURCE_MARKDOWN } from '../utils/c2dProviderSearchString.js'
+import type { ServerContext } from '../server/serverContext.js'
+import { registerDocsResources } from './registerDocsResources.js'
+import { getBuiltinResourceContent, listBuiltinResources } from './resourceCatalog.js'
 
 type RegisterResourcesParams = {
   server: McpServer
-  nodeClient: NodeClient
-  evmRegistry: EvmProviderRegistry
-}
-
-const C2D_FIND_PROVIDER_URI = 'ocean://docs/c2d-find-provider-search'
-const EVM_SUPPORTED_CHAINS_URI = 'ocean://evm/supported-chains'
+} & ServerContext
 
 export function registerResources({
   server,
-  nodeClient: _nodeClient,
-  evmRegistry
+  evmRegistry,
+  docsIndex
 }: RegisterResourcesParams): void {
-  server.registerResource(
-    'c2d-find-provider-search',
-    C2D_FIND_PROVIDER_URI,
-    {
-      title: 'C2D find_provider search strings',
-      description:
-        'How ocean-node advertises compute capacity for DHT discovery and how to use buildFindProviderC2dContent + find_provider.',
-      mimeType: 'text/markdown'
-    },
-    () => ({
-      contents: [
-        {
-          uri: C2D_FIND_PROVIDER_URI,
-          mimeType: 'text/markdown',
-          text: C2D_FIND_PROVIDER_RESOURCE_MARKDOWN
-        }
-      ]
-    })
-  )
+  for (const resource of listBuiltinResources()) {
+    server.registerResource(
+      resource.name,
+      resource.uri,
+      {
+        title: resource.title,
+        description: resource.description,
+        mimeType: resource.mimeType
+      },
+      async () => ({
+        contents: [await getBuiltinResourceContentOrThrow(evmRegistry, resource.uri)]
+      })
+    )
+  }
 
-  server.registerResource(
-    'evm-supported-chains',
-    EVM_SUPPORTED_CHAINS_URI,
-    {
-      title: 'EVM supported chains',
-      description:
-        'Configured EVM chains with latest observed block number and timestamp from each chain fallback provider.',
-      mimeType: 'application/json'
-    },
-    async () => {
-      const chains = await Promise.all(
-        evmRegistry.getConfiguredChainIds().map(async (chainId) => {
-          const provider = evmRegistry.getProvider(chainId)
-          if (!provider) {
-            return {
-              chainId,
-              ready: false,
-              error: 'Provider not found'
-            }
-          }
+  registerDocsResources({ server, docsIndex })
+}
 
-          try {
-            const latestBlock = await provider.getBlock('latest')
-            if (!latestBlock) {
-              return {
-                chainId,
-                ready: false,
-                error: 'No latest block returned'
-              }
-            }
+async function getBuiltinResourceContentOrThrow(
+  evmRegistry: RegisterResourcesParams['evmRegistry'],
+  uri: string
+) {
+  const content = await getBuiltinResourceContent(evmRegistry, uri)
+  if (!content) {
+    throw new Error(`Unsupported built-in resource URI: ${uri}`)
+  }
 
-            return {
-              chainId,
-              ready: true,
-              blockNumber: latestBlock.number,
-              blockTimestamp: latestBlock.timestamp,
-              blockTimestampIso: new Date(latestBlock.timestamp * 1000).toISOString()
-            }
-          } catch (error) {
-            return {
-              chainId,
-              ready: false,
-              error: error instanceof Error ? error.message : `${error}`
-            }
-          }
-        })
-      )
-
-      return {
-        contents: [
-          {
-            uri: EVM_SUPPORTED_CHAINS_URI,
-            mimeType: 'application/json',
-            text: JSON.stringify(
-              {
-                generatedAt: new Date().toISOString(),
-                chains
-              },
-              null,
-              2
-            )
-          }
-        ]
-      }
-    }
-  )
+  return content
 }

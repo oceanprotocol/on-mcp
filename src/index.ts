@@ -5,12 +5,15 @@ import { Wallet } from 'ethers'
 import { randomUUID } from 'node:crypto'
 import type { Request, Response } from 'express'
 
+import { ProviderInstance } from '@oceanprotocol/lib'
+import { NodeClient } from './clients/nodeClient.js'
+import { loadDocs } from './docs/loader.js'
 import {
   getEvmProviderRegistry,
   initEvmProviderRegistryFromEnv
 } from './evm/evmProviderRegistry.js'
 import { createServer } from './server/createServer.js'
-import { ProviderInstance } from '@oceanprotocol/lib'
+import type { ServerContext } from './server/serverContext.js'
 
 import fs from 'fs'
 import util from 'util'
@@ -55,13 +58,13 @@ process.on('SIGTERM', () => {
   shutdown('SIGTERM').catch((error) => console.error('[SIGTERM] Shutdown failed:', error))
 })
 
-async function startStdioServer() {
-  const server = createServer()
+async function startStdioServer(serverContext: ServerContext) {
+  const server = createServer(serverContext)
   const transport = new StdioServerTransport()
   await server.connect(transport)
 }
 
-async function startSseServer() {
+async function startSseServer(serverContext: ServerContext) {
   const app = createMcpExpressApp({ host: sseHost })
   const transports: Record<string, StreamableHTTPServerTransport> = {}
 
@@ -102,7 +105,7 @@ async function startSseServer() {
           }
         }
 
-        const server = createServer()
+        const server = createServer(serverContext)
         await server.connect(transport)
       } else {
         res.status(400).send('Missing or invalid MCP session')
@@ -138,6 +141,18 @@ async function startSseServer() {
       resolve()
     })
   })
+}
+
+async function createServerContext(): Promise<ServerContext> {
+  const evmRegistry = getEvmProviderRegistry()
+  const nodeClient = new NodeClient()
+  const docsIndex = await loadDocs()
+
+  return {
+    nodeClient,
+    evmRegistry,
+    docsIndex
+  }
 }
 
 async function main(): Promise<void> {
@@ -176,12 +191,14 @@ async function main(): Promise<void> {
   } as any)
   // console.info('libp2p node started. Waiting for peer connections...')
 
+  const serverContext = await createServerContext()
+
   if (transportMode === 'sse') {
-    await startSseServer()
+    await startSseServer(serverContext)
     return
   }
 
-  await startStdioServer()
+  await startStdioServer(serverContext)
 }
 
 main().catch((error) => {

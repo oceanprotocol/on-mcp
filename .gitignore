@@ -155,3 +155,4 @@ html-report.html
 *.sqlite
 databases/*
 c2d_storage/*
+content/*

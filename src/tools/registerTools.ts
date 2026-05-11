@@ -1,26 +1,26 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
-import { NodeClient } from '../clients/nodeClient.js'
+import type { ServerContext } from '../server/serverContext.js'
 import { registerAssetTools } from './assets.js'
+import { registerDocsTools } from './registerDocsTools.js'
 import { registerEvmContractTools } from './evmContractTools.js'
 import { registerP2pProviderTools } from './p2pProviderTools.js'
 import { registerResourceTools } from './resourcesTools.js'
 
 type RegisterToolsParams = {
   server: McpServer
-  nodeClient: NodeClient
-  evmRegistry: EvmProviderRegistry
-}
+} & ServerContext
 
 export function registerTools({
   server,
   nodeClient,
-  evmRegistry
+  evmRegistry,
+  docsIndex
 }: RegisterToolsParams): void {
   registerP2pProviderTools({ server, nodeClient })
   registerEvmContractTools({ server, evmRegistry })
   registerAssetTools({ server, evmRegistry })
-  registerResourceTools({ server, evmRegistry })
+  registerResourceTools({ server, evmRegistry, docsIndex })
+  registerDocsTools({ server, docsIndex })
 
   /*
   server.registerTool(
