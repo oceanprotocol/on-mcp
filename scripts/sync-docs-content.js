@@ -12,12 +12,6 @@ const contentDir = process.env.DOCS_CONTENT_DIR
 
 const repos = [
   {
-    name: 'ON-Docs-MCP',
-    envKey: 'ON_DOCS_PATH',
-    url: 'https://github.com/oceanprotocol/ON-Docs-MCP',
-    branch: 'main'
-  },
-  {
     name: 'ocean-node',
     envKey: 'OCEAN_NODE_PATH',
     url: 'https://github.com/oceanprotocol/ocean-node',
@@ -27,12 +21,6 @@ const repos = [
     name: 'nodes-dashboard',
     envKey: 'NODES_DASHBOARD_PATH',
     url: 'https://github.com/oceanprotocol/nodes-dashboard',
-    branch: 'main'
-  },
-  {
-    name: 'nodes-incentives-monitor',
-    envKey: 'NODES_INCENTIVES_MONITOR_PATH',
-    url: 'https://github.com/oceanprotocol/nodes-incentives-monitor',
     branch: 'main'
   },
   {
