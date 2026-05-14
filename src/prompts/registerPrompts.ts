@@ -593,7 +593,6 @@ ESCROW_CLAIM_TIMEOUT=3600
     }
   )
 
-
   server.registerPrompt(
     'publish_asset',
     {
