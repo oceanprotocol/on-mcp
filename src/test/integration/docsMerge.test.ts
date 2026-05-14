@@ -102,6 +102,7 @@ describe('docs MCP merge', () => {
 
     const server = createServer({
       nodeClient: {} as any,
+      incentivesClient: {} as any,
       evmRegistry: {
         getConfiguredChainIds: (): number[] => [],
         getProvider: (): undefined => undefined
@@ -129,6 +130,7 @@ describe('docs MCP merge', () => {
     registerTools({
       server: fake.server,
       nodeClient: {} as any,
+      incentivesClient: {} as any,
       evmRegistry: {} as any,
       docsIndex
     })
@@ -163,6 +165,7 @@ describe('docs MCP merge', () => {
     registerResources({
       server: fake.server,
       nodeClient: {} as any,
+      incentivesClient: {} as any,
       evmRegistry: {
         getConfiguredChainIds: (): number[] => [],
         getProvider: (): undefined => undefined
