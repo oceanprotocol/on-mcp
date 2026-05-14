@@ -215,12 +215,12 @@ const DIAGNOSTICS: Record<
   no_benchmark_jobs: {
     title: 'Node Is Not Receiving Benchmark Jobs',
     checks: [
-      'Version >= 2.0.0 - check at: curl http://localhost:8000/api/services/info | jq .version',
+      'Version >= 3.2.0 - check at: curl http://localhost:8000/api/services/info | jq .version',
       'P2P public IP announced - P2P_ANNOUNCE_ADDRESSES must contain your real public IP (not 127.x, 10.x, 192.168.x, or relay-only)',
-      'Sepolia escrow address configured - escrowAddress must include chain ID 11155111',
+      'Base chain configured - escrowAddress must include chain ID 8453',
       'Compute environment pricing: 0 < total < 3 USDC/min to be eligible, <= 1 USDC/min to receive jobs',
       'GPU resource listed in at least one compute environment',
-      "Ocean monitoring consumer wallet added to compute environment's access.addresses",
+      'ENABLE_BENCHMARK set to yes in config',
       'Consecutive monitoring failures < 3 - check Nodes Dashboard eligibility tab',
       '7-day success rate >= 50% - check Nodes Dashboard'
     ],
@@ -288,12 +288,11 @@ const DIAGNOSTICS: Record<
       'USDC balance on Base network is sufficient',
       'ESCROW_CLAIM_TIMEOUT (default 3600s) - increase if jobs are long-running',
       'feeToken in compute environment matches the payment token the user is sending',
-      'Sepolia USDC address: 0x1c7d4b196cb0c7b01d743fbc6116a902379c7238',
-      'Base mainnet USDC is a different address - make sure chains are not mixed'
+      'Base USDC address: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
     ],
     commands: [
-      'npm run cli getUserFundsEscrow --token 0x1c7d4b196cb0c7b01d743fbc6116a902379c7238',
-      'npm run cli depositEscrow --token 0xTOKEN --amount 10'
+      'npm run cli getUserFundsEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+      'npm run cli depositEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 --amount 10'
     ],
     notes:
       'For paid jobs, the consumer must authorize the orchestrator to spend tokens. This is prompted automatically in the extension and dashboard.'
@@ -511,7 +510,7 @@ P2P_ANNOUNCE_ADDRESSES=["/ip4/${publicIp}/tcp/8000"]
 P2P_ENABLE_IPV4=true
 P2P_ipV4BindTcpPort=8001
 P2P_ipV4BindWsPort=8002${gpuNote}
-
+ENABLE_BENCHMARK=true
 DOCKER_COMPUTE_ENVIRONMENTS=[
   {
     "socketPath": "/var/run/docker.sock",
@@ -521,21 +520,15 @@ DOCKER_COMPUTE_ENVIRONMENTS=[
       {"id": "disk", "price": 0.02, "total": 50,   "min": 1,  "max": 50}${gpuResource}
     ],
     "fees": {
-      "11155111": [
+      "8453 ": [
         {
-          "feeToken": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+          "feeToken": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
           "prices": [
             {"id": "cpu",  "price": 0.05},
             {"id": "ram",  "price": 0.05},
             {"id": "disk", "price": 0.02}${hasGpu ? ',\n            {"id": "gpu",  "price": 0.10}' : ''}
           ]
         }
-      ]
-    },
-    "access": {
-      "type": "allowList",
-      "addresses": [
-        "0xOCEAN_MONITORING_CONSUMER_WALLET"
       ]
     },
     "free": {
@@ -562,9 +555,8 @@ ESCROW_CLAIM_TIMEOUT=3600
 
 1. Save the above as \`.env\` in your project directory.
 2. Download the \`docker-compose.yml\` from the Dashboard wizard or Ocean Node repo.
-3. Replace \`OCEAN_MONITORING_CONSUMER_WALLET\` with the official Ocean monitoring consumer address.
-4. Start: \`docker-compose up -d\`
-5. Verify: http://${publicIp}:8000/api/services/info`
+3. Start: \`docker-compose up -d\`
+4. Verify: http://${publicIp}:8000/api/services/info`
           : `## NPM (Development) Setup
 
 1. Save the above as \`.env\` in the ocean-node directory.
@@ -586,12 +578,12 @@ ESCROW_CLAIM_TIMEOUT=3600
           setupBody,
           '',
           '## Post-Setup Eligibility Checklist',
-          '1. Node version >= 2.0.0 - check at /api/services/info',
+          '1. Node version >= 3.2.0 - check at /api/services/info',
           '2. P2P reachable - the monitoring service will test this',
-          '3. Sepolia escrow address configured',
+          '3. Base chain configured',
           `4. Compute pricing: current total = ${hasGpu ? '0.22' : '0.12'} USDC/min (< 1 USDC/min keeps you benchmark eligible)`,
           '5. GPU resource listed (required for incentives)',
-          '6. Ocean monitoring consumer wallet added to access.addresses',
+          '6. ENABLE_BENCHMARK set to true in config',
           '',
           'Use the **check_node_eligibility** tool to validate your final configuration.',
           '',
@@ -601,125 +593,6 @@ ESCROW_CLAIM_TIMEOUT=3600
     }
   )
 
-  server.registerPrompt(
-    'run_compute_job',
-    {
-      description:
-        'Step-by-step guide to run a compute job on Ocean Network via CLI, VS Code Extension, or Dashboard.',
-      argsSchema: {
-        method: z
-          .enum(['cli', 'vscode', 'dashboard'])
-          .describe("How to run the job: 'cli', 'vscode', or 'dashboard'"),
-        dataset_did: z
-          .string()
-          .optional()
-          .describe('Dataset DID if known, e.g. did:op:0x123...'),
-        algo_did: z
-          .string()
-          .optional()
-          .describe('Algorithm DID if known, e.g. did:op:0x456...'),
-        duration_seconds: z
-          .number()
-          .optional()
-          .describe('Max job duration in seconds (default: 60)')
-      }
-    },
-    (args) => {
-      const {
-        method,
-        dataset_did: datasetDid,
-        algo_did: algoDid,
-        duration_seconds: rawDurationSeconds
-      } = args
-      const durationSeconds = rawDurationSeconds ?? 60
-      const paymentToken = '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'
-      const dataset = datasetDid ?? '$DATASET_DID'
-      const algorithm = algoDid ?? '$ALGO_DID'
-
-      if (method === 'cli') {
-        return promptMessage(
-          `
-## Run a Compute Job via Ocean CLI
-
-### Prerequisites
-\`\`\`bash
-export PRIVATE_KEY=0xYOUR_PRIVATE_KEY
-export RPC=https://sepolia.infura.io/v3/YOUR_KEY
-export NODE_URL=http://YOUR_NODE_URL:8000
-export PAYMENT_TOKEN=${paymentToken}
-\`\`\`
-
-### Step 1 - Find Compute Environments
-\`\`\`bash
-npm run cli getComputeEnvironments
-\`\`\`
-
-### Step 2 - Start the Compute Job
-\`\`\`bash
-export DATASET_DID=${dataset}
-export ALGO_DID=${algorithm}
-export ENV_ID=YOUR_ENV_ID
-
-npm run cli startCompute \\
-  $DATASET_DID \\
-  $ALGO_DID \\
-  $ENV_ID \\
-  ${durationSeconds} \\
-  $PAYMENT_TOKEN \\
-  '[{"id":"cpu","amount":1},{"id":"disk","amount":1},{"id":"ram","amount":1}]'
-\`\`\`
-
-### Step 3 - Monitor Status
-\`\`\`bash
-npm run cli getJobStatus -d $DATASET_DID -j $JOB_ID ''
-\`\`\`
-
-### Step 4 - Download Results
-\`\`\`bash
-mkdir results
-npm run cli downloadJobResults $JOB_ID 2 ./results
-\`\`\`
-`.trim()
-        )
-      }
-
-      if (method === 'vscode') {
-        return promptMessage(
-          `
-## Run a Compute Job via VS Code Extension (Ocean Orchestrator)
-
-1. Install **Ocean Orchestrator** from the Marketplace.
-2. Open the Ocean panel in the Activity Bar.
-3. Create or load your project.
-4. Select compute resources in **Configure Compute**.
-${datasetDid ? `5. Dataset DID: \`${datasetDid}\`` : '5. Select your input dataset.'}
-${algoDid ? `6. Algorithm DID: \`${algoDid}\`` : '6. Select or create your algorithm.'}
-7. Run the job and monitor logs in the Output Console.
-
-Remember the C2D conventions:
-- Inputs: \`/data/inputs/<DID>/<filename>\`
-- Outputs: \`/data/outputs/\`
-- DIDs: \`process.env.DIDS\` or \`os.getenv("DIDS")\`
-`.trim()
-        )
-      }
-
-      return promptMessage(
-        `
-## Run a Compute Job via Nodes Dashboard
-
-1. Open https://dashboard.oceanprotocol.com and log in.
-2. Navigate to **Run a Job** and browse available compute resources.
-3. Choose your node and configure the job.
-${datasetDid ? `4. Dataset: \`${datasetDid}\`` : '4. Select the input dataset.'}
-${algoDid ? `5. Algorithm: \`${algoDid}\`` : '5. Upload or select the algorithm.'}
-6. Set job duration to ${durationSeconds}s if you are testing.
-7. Deposit and authorize payment if prompted.
-8. Monitor status in **My Jobs** and download results when complete.
-`.trim()
-      )
-    }
-  )
 
   server.registerPrompt(
     'publish_asset',
