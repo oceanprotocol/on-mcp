@@ -215,7 +215,7 @@ const DIAGNOSTICS: Record<
   no_benchmark_jobs: {
     title: 'Node Is Not Receiving Benchmark Jobs',
     checks: [
-      'Version >= 3.2.0 - check at: curl http://localhost:8000/api/services/info | jq .version',
+      'Version >= 3.1.1 - check at: curl http://localhost:8000/api/services/info | jq .version',
       'P2P public IP announced - P2P_ANNOUNCE_ADDRESSES must contain your real public IP (not 127.x, 10.x, 192.168.x, or relay-only)',
       'Base chain configured - escrowAddress must include chain ID 8453',
       'Compute environment pricing: 0 < total < 3 USDC/min to be eligible, <= 1 USDC/min to receive jobs',
@@ -578,7 +578,7 @@ ESCROW_CLAIM_TIMEOUT=3600
           setupBody,
           '',
           '## Post-Setup Eligibility Checklist',
-          '1. Node version >= 3.2.0 - check at /api/services/info',
+          '1. Node version >= 3.1.1 - check at /api/services/info',
           '2. P2P reachable - the monitoring service will test this',
           '3. Base chain configured',
           `4. Compute pricing: current total = ${hasGpu ? '0.22' : '0.12'} USDC/min (< 1 USDC/min keeps you benchmark eligible)`,
