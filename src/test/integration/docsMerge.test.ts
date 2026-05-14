@@ -201,7 +201,6 @@ describe('docs MCP merge', () => {
       'new_c2d_algo_python',
       'new_c2d_algo_js',
       'setup_node',
-      'run_compute_job',
       'publish_asset',
       'debug_node'
     ])
