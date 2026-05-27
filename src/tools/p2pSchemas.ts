@@ -69,7 +69,9 @@ export const EPHEMERAL_CONSUMER_KEY_DISCLAIMER =
 export const P2P_PERSISTENT_STORAGE_PREREQUISITE = `## Node capability check (required first)
 Before **createPersistentStorageBucket**, **getPersistentStorageBuckets**, **listPersistentStorageFiles**, **getPersistentStorageFileObject**, or **deletePersistentStorageFile**, call **node_status** on the **same** target (\`nodeId\` / \`multiaddress\`).
 
-Ocean-node only adds **\`persistentStorage\`** to the status JSON when **\`config.persistentStorage\`** is enabled: the handler sets \`nodeStatus.persistentStorage\` to an object and may attach **\`accessLists\`** from config. If **\`persistentStorage\`** is **missing** from the status response, persistent storage is **not** available on that node—do not call the tools above for that peer.`
+Ocean-node only adds **\`persistentStorage\`** to the status JSON when **\`config.persistentStorage\`** is enabled: the handler sets \`nodeStatus.persistentStorage\` to an object and may attach **\`accessLists\`** from config. If **\`persistentStorage\`** is **missing** from the status response, persistent storage is **not** available on that node—do not call the tools above for that peer.
+
+**Bucket ownership is scoped to the consumer of the \`authToken\` used.** Reuse the **same** \`authToken\` for create/upload/list/read/delete and for the compute job that consumes the bucket — a different token means a different consumer and access errors. Inside a C2D container, \`nodePersistentStorage\` inputs mount at \`/data/persistentStorage/<bucketId>/<fileName>\` (not \`/data/inputs/\`).`
 
 export const nodeTargetSchema = {
   nodeId: z

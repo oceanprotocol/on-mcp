@@ -48,6 +48,7 @@ The node writes your \`rawcode\` to \`/data/transformations/algorithm\` and subs
 
 ### Filesystem inside the container
 - \`/data/inputs/\` — **walk recursively**. Layout is \`/data/inputs/<DID>/<file>\` for DID assets, or \`/data/inputs/<file>\` for URL \`fileObject\` inputs. **Skip \`algoCustomData.json\`** (it is custom job data, not a dataset file).
+- \`/data/persistentStorage/<bucketId>/<fileName>\` — inputs of type **\`nodePersistentStorage\`** mount here, **not** under \`/data/inputs/\`. Read each file directly at this exact path using its \`bucketId\` and \`fileName\`.
 - \`/data/outputs/\` — write results here; the whole directory is returned as **\`outputs.tar\`**. Files written anywhere else are lost.
 - env \`DIDS\` — JSON array string of input DIDs. May be \`"[]"\` or unset when all inputs are URL \`fileObject\`s.
 

@@ -1086,6 +1086,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P create auth token',
       description: `Mints a node JWT via \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\`. The token's identity is the **consumer** for later compute calls.
 
+**Mint once per session and reuse the returned JWT for every later call.** Buckets, jobs, and results are owned by the token's **consumer address**. Re-minting — especially a new \`ephemeral\` key — produces a **different consumer** that cannot access resources created by the earlier token. For a stable identity across mints, reuse the same \`privateKey\`.
+
 **If the user already has an auth token (JWT), skip this tool** and pass it directly as \`authToken\` on the compute call.
 
 **Before starting a job, ask the user which key to use** and pass exactly one of:
