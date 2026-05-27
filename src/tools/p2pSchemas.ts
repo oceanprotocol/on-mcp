@@ -65,6 +65,20 @@ export const P2P_ADMIN_CONFIG_WARNING = `**Operator-only:** Misuse can break or 
 export const EPHEMERAL_CONSUMER_KEY_DISCLAIMER =
   'This is a throwaway consumer key generated for this job. The server does not persist it — keep the returned privateKey if you want to reuse it. It starts with no funds; fund its address if you need it for paid jobs. Ocean Network is not responsible for any leaked, drained, or lost keys.'
 
+/** Shared payment/duration semantics for initializeCompute + computeStart. Field names verified against ocean-node @types/Fees.ts and C2D.ts. */
+export const P2P_COMPUTE_PAYMENT_GUIDE = `## Duration vs escrow lock — NOT the same thing
+- **maxJobDuration** (computeStart) / **validUntil** (initializeCompute): seconds the algorithm **container** may run. The node clamps it into the env's [\`minJobDuration\`, \`maxJobDuration\`] and bills at least \`minJobDuration\`. For a quick test use **env.minJobDuration** (often 60).
+- **payment.minLockSeconds** (initializeCompute response): how long the **escrow lock** must stay valid = \`maxJobDuration + queueMaxWaitTime + the node's claimDurationTimeout\` (a config buffer, default **3600s**). It is the run time plus a buffer, so it is usually larger than the job duration — and much larger on nodes configured with a big claimDurationTimeout. Your escrow authorization's \`maxLockSeconds\` must be **≥** this; do not shrink job duration to match it.
+
+## Cost — do not compute it yourself
+Cost ≈ Σ over resources of (per-minute price × allocated amount) × \`ceil(maxJobDuration / 60)\`. The node enforces **resource minimums** (\`resources[].min\` for cpu/ram/disk), so requesting \`cpu: 1\` may bill for the env minimum (e.g. \`cpu: 8\`). Trust **payment.amount** from initializeCompute (**raw** token units, not human-readable) — never your own math.
+
+## Typical paid flow
+1. **getComputeEnvironments** → pick env; note \`minJobDuration\` and each \`resources[].min\`.
+2. **initializeCompute** with \`validUntil = env.minJobDuration\` → read \`payment.amount\`, \`payment.minLockSeconds\`, \`payment.token\`, \`payment.payee\`.
+3. Verify escrow before starting: \`escrow_get_authorizations(payer, payee, token)\` returns an **array** of auth tuples (usually one), each in ABI order \`[payee, maxLockedAmount, currentLockedAmount, maxLockSeconds, maxLockCounts, currentLocks]\` — so read \`result[0][1]\` for maxLockedAmount, etc. Require \`maxLockedAmount ≥ payment.amount\` and \`maxLockSeconds ≥ payment.minLockSeconds\`; and \`escrow_get_user_funds ≥ payment.amount\`. Deposit/authorize (dashboard or escrow tools) if short.
+4. **computeStart** with \`maxJobDuration = env.minJobDuration\`.`
+
 /** Instructs MCP clients to confirm the node exposes persistent storage via status before calling PS tools. Mirrors ocean-node statusHandler (persistentStorage only when config.persistentStorage is set). */
 export const P2P_PERSISTENT_STORAGE_PREREQUISITE = `## Node capability check (required first)
 Before **createPersistentStorageBucket**, **getPersistentStorageBuckets**, **listPersistentStorageFiles**, **getPersistentStorageFileObject**, or **deletePersistentStorageFile**, call **node_status** on the **same** target (\`nodeId\` / \`multiaddress\`).

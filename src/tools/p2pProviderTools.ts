@@ -9,6 +9,7 @@ import { toJsonFriendly } from './evmToolUtils.js'
 import {
   EPHEMERAL_CONSUMER_KEY_DISCLAIMER,
   findProviderInputSchema,
+  P2P_COMPUTE_PAYMENT_GUIDE,
   nodeTargetSchema,
   parseNodeTarget,
   P2P_ADMIN_CONFIG_WARNING,
@@ -347,9 +348,11 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'initializeCompute',
     {
       title: 'P2P initialize compute',
-      description: `Price / validation step for compute (\`initializeCompute\`). **Does not require** authToken or signature in ocean.js; the node validates parameters and returns payment / fee hints (\`ProviderComputeInitializeResults\`).
+      description: `Price / validation step for compute (\`initializeCompute\`). **Does not require** authToken or signature in ocean.js; the node validates parameters and returns payment / fee hints (\`ProviderComputeInitializeResults\`). **Always call this before \`computeStart\` to learn the real cost.**
 
-**Returns:** Object with optional \`algorithm\`, \`datasets\`, \`payment\` (escrow, token, amounts) fields.`,
+${P2P_COMPUTE_PAYMENT_GUIDE}
+
+**Returns:** \`{ algorithm?, datasets?, payment }\` where \`payment\` = \`{ escrowAddress, payee, chainId, token, amount, minLockSeconds }\`. \`amount\` is **raw** token units; \`minLockSeconds\` is the escrow-lock requirement (not the job duration).`,
       inputSchema: {
         ...nodeTargetSchema,
         assets: computeAssetList,
@@ -361,7 +364,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
         validUntil: z
           .number()
           .describe(
-            'Max job duration / validity window (seconds) as expected by the node.'
+            'Container run time in seconds (same value you will pass as computeStart maxJobDuration), clamped to the env [minJobDuration, maxJobDuration]. NOT the escrow lock period — that is payment.minLockSeconds in the response. For a quick test use env.minJobDuration.'
           ),
         consumerAddress: z.string(),
         resources: computeResourcesSchema,
@@ -427,6 +430,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
 
 Then call this tool with that token as \`authToken\`. If the user already has a valid token for a funded, authorized consumer, just pass it directly.
 
+${P2P_COMPUTE_PAYMENT_GUIDE}
+
 ${P2P_AUTH_SIGNING_GUIDE}
 
 **protocolCommand:** \`startCompute\`.
@@ -438,7 +443,11 @@ ${P2P_AUTH_SIGNING_GUIDE}
         computeEnv: z.string(),
         datasets: computeAssetList,
         algorithm: computeAlgorithmSchema,
-        maxJobDuration: z.number(),
+        maxJobDuration: z
+          .number()
+          .describe(
+            'Container run time in seconds, NOT the escrow lock period. Clamped to the env [minJobDuration, maxJobDuration] and billed at a minimum of minJobDuration. Use the same value you passed to initializeCompute as validUntil (env.minJobDuration for a quick test).'
+          ),
         token: z.string().describe('Fee token contract address.'),
         resources: computeResourcesSchema,
         chainId: z.number(),
