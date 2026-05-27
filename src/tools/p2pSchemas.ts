@@ -79,6 +79,13 @@ Cost ≈ Σ over resources of (per-minute price × allocated amount) × \`ceil(m
 3. Verify escrow before starting: \`escrow_get_authorizations(payer, payee, token)\` returns an **array** of auth tuples (usually one), each in ABI order \`[payee, maxLockedAmount, currentLockedAmount, maxLockSeconds, maxLockCounts, currentLocks]\` — so read \`result[0][1]\` for maxLockedAmount, etc. Require \`maxLockedAmount ≥ payment.amount\` and \`maxLockSeconds ≥ payment.minLockSeconds\`; and \`escrow_get_user_funds ≥ payment.amount\`. Deposit/authorize (dashboard or escrow tools) if short.
 4. **computeStart** with \`maxJobDuration = env.minJobDuration\`.`
 
+/** Tells the calling model to poll a started job to completion and fetch output without pausing to ask. Status values verified against ocean-node C2DStatusNumber/C2DStatusText. */
+export const P2P_COMPUTE_POLLING_GUIDE = `## After starting: poll to completion, then fetch the output — do NOT ask between polls
+Once a job is started, drive it to the end yourself: call **computeStatus** for that job repeatedly (every ~5–10s; image pulls take time) until a terminal state, then fetch the result. Do not stop to ask the user whether to poll. Read the numeric **status** (\`C2DStatusNumber\`):
+- **70 (Job finished)** or **71 (settled)** → success. Fetch output with **getComputeResult** (base64 stream) or **get_compute_result_url** (URL).
+- A failure state — \`statusText\` contains "failed" / "expired" / "vulnerabilities" / "disk quota exceeded" (e.g. 11 PullImageFailed, 13 BuildImageFailed, 32 AlgorithmProvisioningFailed, 41 AlgorithmFailed) → stop and report it; do not keep polling.
+- Anything else (0,1,10,12,20,30,40,50,60 — queued / pulling / provisioning / running / publishing) → still in progress; keep polling.`
+
 /** Instructs MCP clients to confirm the node exposes persistent storage via status before calling PS tools. Mirrors ocean-node statusHandler (persistentStorage only when config.persistentStorage is set). */
 export const P2P_PERSISTENT_STORAGE_PREREQUISITE = `## Node capability check (required first)
 Before **createPersistentStorageBucket**, **getPersistentStorageBuckets**, **listPersistentStorageFiles**, **getPersistentStorageFileObject**, or **deletePersistentStorageFile**, call **node_status** on the **same** target (\`nodeId\` / \`multiaddress\`).

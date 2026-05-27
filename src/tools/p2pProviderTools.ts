@@ -10,6 +10,7 @@ import {
   EPHEMERAL_CONSUMER_KEY_DISCLAIMER,
   findProviderInputSchema,
   P2P_COMPUTE_PAYMENT_GUIDE,
+  P2P_COMPUTE_POLLING_GUIDE,
   nodeTargetSchema,
   parseNodeTarget,
   P2P_ADMIN_CONFIG_WARNING,
@@ -432,6 +433,8 @@ Then call this tool with that token as \`authToken\`. If the user already has a 
 
 ${P2P_COMPUTE_PAYMENT_GUIDE}
 
+${P2P_COMPUTE_POLLING_GUIDE}
+
 ${P2P_AUTH_SIGNING_GUIDE}
 
 **protocolCommand:** \`startCompute\`.
@@ -499,6 +502,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
       description: `Starts a free compute job (\`freeStartCompute\`). Requires auth.
 
 **Need auth?** First ask the user if they already have an auth token (JWT) — if so, pass it directly as \`authToken\`, no minting needed. Otherwise call \`create_auth_token\`: ask whether to use an ephemeral key (generated, fine for free compute) or their own private key, then pass the returned JWT here as \`authToken\`.
+
+${P2P_COMPUTE_POLLING_GUIDE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
@@ -604,6 +609,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
     {
       title: 'P2P compute status',
       description: `Queries job status (\`getComputeStatus\`). Requires auth (JWT or completeSignature so the library can supply \`consumerAddress\` / headers).
+
+${P2P_COMPUTE_POLLING_GUIDE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
