@@ -61,6 +61,10 @@ If you reimplement signing without ocean.js, your wallet must produce the same E
 
 export const P2P_ADMIN_CONFIG_WARNING = `**Operator-only:** Misuse can break or leak node configuration. Payload must match ocean-node signing expectations for \`fetchConfig\` / \`pushConfig\`.`
 
+/** Returned alongside an ephemeral consumer key so the user understands its throwaway nature. */
+export const EPHEMERAL_CONSUMER_KEY_DISCLAIMER =
+  'This is a throwaway consumer key generated for this job. The server does not persist it — keep the returned privateKey if you want to reuse it. It starts with no funds; fund its address if you need it for paid jobs. Ocean Network is not responsible for any leaked, drained, or lost keys.'
+
 /** Instructs MCP clients to confirm the node exposes persistent storage via status before calling PS tools. Mirrors ocean-node statusHandler (persistentStorage only when config.persistentStorage is set). */
 export const P2P_PERSISTENT_STORAGE_PREREQUISITE = `## Node capability check (required first)
 Before **createPersistentStorageBucket**, **getPersistentStorageBuckets**, **listPersistentStorageFiles**, **getPersistentStorageFileObject**, or **deletePersistentStorageFile**, call **node_status** on the **same** target (\`nodeId\` / \`multiaddress\`).

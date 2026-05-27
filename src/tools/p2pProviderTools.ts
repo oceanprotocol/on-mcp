@@ -1,12 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod/v4'
 import { DDO, ProviderInstance, PROTOCOL_COMMANDS } from '@oceanprotocol/lib'
+import { Wallet } from 'ethers'
 import { NodeClient } from '../clients/nodeClient.js'
 import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
 import { buildC2dProviderSearchContent } from '../utils/c2dProviderSearchString.js'
 import { toJsonFriendly } from './evmToolUtils.js'
 import {
-  completeSignatureSchema,
+  EPHEMERAL_CONSUMER_KEY_DISCLAIMER,
   findProviderInputSchema,
   nodeTargetSchema,
   parseNodeTarget,
@@ -418,6 +419,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P start paid compute',
       description: `Starts a paid compute job (\`startCompute\`). Requires auth.
 
+**Need auth?** First ask the user if they already have an auth token (JWT) — if so, pass it directly as \`authToken\`, no minting needed. Otherwise call \`create_auth_token\`: paid jobs need a funded key, so ask for their own private key (an ephemeral key has no funds), then pass the returned JWT here as \`authToken\`.
+
 ${P2P_AUTH_SIGNING_GUIDE}
 
 **protocolCommand:** \`startCompute\`.
@@ -479,6 +482,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
     {
       title: 'P2P start free compute',
       description: `Starts a free compute job (\`freeStartCompute\`). Requires auth.
+
+**Need auth?** First ask the user if they already have an auth token (JWT) — if so, pass it directly as \`authToken\`, no minting needed. Otherwise call \`create_auth_token\`: ask whether to use an ephemeral key (generated, fine for free compute) or their own private key, then pass the returned JWT here as \`authToken\`.
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
@@ -1079,29 +1084,81 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'create_auth_token',
     {
       title: 'P2P create auth token',
-      description: `Mints a JWT via \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\` (\`generateSignedAuthToken\`). **No existing authToken** — you sign with your wallet.
+      description: `Mints a node JWT via \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\`. The token's identity is the **consumer** for later compute calls.
 
-Use **completeSignature** only: **nonce = String((getNonce) + 1)** and **protocolCommand** \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\` per the auth guide.
+**If the user already has an auth token (JWT), skip this tool** and pass it directly as \`authToken\` on the compute call.
 
-**Returns:** JWT string to pass as **authToken** on later calls.`,
+**Before starting a job, ask the user which key to use** and pass exactly one of:
+- **ephemeral: true** — the server generates a throwaway key (no funds initially). The response includes the generated \`privateKey\`, so the user can keep it and fund its address for paid jobs if they want.
+- **privateKey** — the user's own existing key (e.g. one already funded for paid jobs). **Security:** a pasted key transits the chat/LLM context — recommend **testnet keys only**. The key is never echoed back.
+
+**Returns:** \`token\` (JWT) to pass as **authToken** on later calls, plus \`address\`; for \`ephemeral\`, also \`privateKey\` and a disclaimer.`,
       inputSchema: {
         ...nodeTargetSchema,
-        completeSignature: completeSignatureSchema.describe(
-          'Wallet-signed CREATE_AUTH_TOKEN (consumerAddress, nonce, signature).'
-        )
+        ephemeral: z
+          .boolean()
+          .optional()
+          .describe(
+            'Generate a throwaway consumer key for this token (no funds initially; fund its address for paid use). Returns the generated privateKey.'
+          ),
+        privateKey: z
+          .string()
+          .optional()
+          .describe(
+            "The user's own existing key (0x-hex), e.g. one already funded for paid jobs. Transits the chat/LLM context — testnet keys only. Never echoed back."
+          )
       }
     },
-    async ({ nodeId, multiaddress, timeout, completeSignature }) => {
+    async ({ nodeId, multiaddress, timeout, ephemeral, privateKey }) => {
       try {
+        const sources = [ephemeral === true, !!privateKey].filter(Boolean).length
+        if (sources !== 1) {
+          throw new Error('Provide exactly one of: ephemeral or privateKey')
+        }
         const node = parseNodeTarget(nodeId, multiaddress)
-        const result = await nodeClient.createAuthToken(
+
+        if (privateKey) {
+          let wallet: Wallet
+          try {
+            wallet = new Wallet(privateKey)
+          } catch {
+            // Never surface the raw ethers error — it embeds the supplied key value.
+            throw new Error(
+              'Invalid private key format (must be a 0x-prefixed 32-byte hex string)'
+            )
+          }
+          let token: string
+          try {
+            token = await nodeClient.createAuthTokenWithSigner(
+              node,
+              wallet,
+              timeoutMs(timeout)
+            )
+          } catch {
+            // Never surface the underlying error on the user-key path — it could
+            // echo the supplied key. Return a safe, generic message instead.
+            throw new Error(
+              'Failed to mint auth token from the provided private key (node unreachable or rejected the request)'
+            )
+          }
+          return commandResultPayload('create_auth_token', {
+            token,
+            address: wallet.address
+          })
+        }
+
+        const ephemeralWallet = Wallet.createRandom()
+        const token = await nodeClient.createAuthTokenWithSigner(
           node,
-          completeSignature.consumerAddress,
-          completeSignature.signature,
-          completeSignature.nonce,
+          ephemeralWallet,
           timeoutMs(timeout)
         )
-        return commandResultPayload('create_auth_token', { token: result })
+        return commandResultPayload('create_auth_token', {
+          token,
+          address: ephemeralWallet.address,
+          privateKey: ephemeralWallet.privateKey,
+          disclaimer: EPHEMERAL_CONSUMER_KEY_DISCLAIMER
+        })
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }

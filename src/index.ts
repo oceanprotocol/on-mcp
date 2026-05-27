@@ -38,47 +38,6 @@ const transportMode = (process.env.MCP_TRANSPORT ?? 'stdio').toLowerCase()
 const ssePort = process.env.MCP_PORT ? Number(process.env.MCP_PORT) : 3000
 const sseHost = process.env.MCP_HOST ?? '127.0.0.1'
 
-const DISPOSABLE_KEY_DISCLAIMER = [
-  'No PRIVATE_KEY was provided, so a disposable key was generated for this session only.',
-  'The same key is reused for the whole session but is not persisted and will be lost on restart.',
-  'Do not fund it or use it as a real identity.',
-  'To use your own identity, set the PRIVATE_KEY environment variable and restart.',
-  'Ocean Network is not responsible for any leaked, drained, or lost keys.'
-].join(' ')
-
-// Set when no PRIVATE_KEY was provided and we minted a throwaway one (see main()).
-let usingDisposableKey = false
-
-/**
- * When running on a disposable key, surface the disclaimer to the user via MCP
- * elicitation once their session initializes. Falls back silently to the
- * startup log warning when the client does not support elicitation. The key is
- * already fixed at this point (libp2p is up), so this only informs — it cannot
- * swap in a real key.
- */
-function attachDisposableKeyNotice(server: ReturnType<typeof createServer>): void {
-  const previous = server.server.oninitialized
-  server.server.oninitialized = () => {
-    previous?.()
-    if (!server.server.getClientCapabilities()?.elicitation) return
-    server.server
-      .elicitInput({
-        message: DISPOSABLE_KEY_DISCLAIMER,
-        requestedSchema: {
-          type: 'object',
-          properties: {
-            acknowledge: {
-              type: 'boolean',
-              title: 'I understand',
-              description: 'This disposable key is not persisted and carries no warranty.'
-            }
-          }
-        }
-      })
-      .catch((error) => console.error('Disposable-key elicitation failed:', error))
-  }
-}
-
 let isShuttingDown = false
 async function shutdown(signal: string) {
   if (isShuttingDown) return
@@ -102,7 +61,6 @@ process.on('SIGTERM', () => {
 
 async function startStdioServer(serverContext: ServerContext) {
   const server = createServer(serverContext)
-  if (usingDisposableKey) attachDisposableKeyNotice(server)
   const transport = new StdioServerTransport()
   await server.connect(transport)
 }
@@ -149,7 +107,6 @@ async function startSseServer(serverContext: ServerContext) {
         }
 
         const server = createServer(serverContext)
-        if (usingDisposableKey) attachDisposableKeyNotice(server)
         await server.connect(transport)
       } else {
         res.status(400).send('Missing or invalid MCP session')
@@ -203,13 +160,14 @@ async function createServerContext(): Promise<ServerContext> {
 
 async function main(): Promise<void> {
   if (!process.env.PRIVATE_KEY) {
-    // No key provided: generate one disposable key and reuse it for the whole
-    // session (process lifetime). It is never persisted, so it is lost on restart.
-    // The same disclaimer is surfaced to the user via elicitation on connect
-    // (see attachDisposableKeyNotice) for clients that support it.
-    usingDisposableKey = true
+    // No key provided: generate a disposable libp2p identity for this session.
+    // This is ONLY the MCP server's network identity used to reach ocean-node
+    // peers — NOT the key that authorizes or pays for compute jobs. That
+    // consumer key is chosen per-job via the create_auth_token tool.
     process.env.PRIVATE_KEY = Wallet.createRandom().privateKey
-    console.warn(DISPOSABLE_KEY_DISCLAIMER)
+    console.warn(
+      'No PRIVATE_KEY set: generated a disposable libp2p network identity for this MCP server session (lost on restart). This is the server peer identity, not a key you fund or that authorizes your compute jobs — choose that per-job via create_auth_token. Set PRIVATE_KEY for a stable server identity.'
+    )
   }
 
   initEvmProviderRegistryFromEnv()
