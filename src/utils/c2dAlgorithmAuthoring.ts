@@ -60,11 +60,11 @@ The node writes your \`rawcode\` to \`/data/transformations/algorithm\` and subs
 Run the **validate_algo_structure** tool on your source to catch common mistakes (missing \`DIDS\` read, wrong input/output paths, missing exit code) before submitting.
 
 ### Auth for free compute
-Free compute needs an auth token but **no on-chain transaction** (no escrow, no payment):
-1. **getNonce** for your address.
-2. Sign \`address + nonce + "createAuthToken"\` (EIP-191 over the keccak256 of the UTF-8 bytes — see the auth guide in the compute tool descriptions).
-3. **create_auth_token** → returns a **JWT**.
-4. Pass the JWT as \`authToken\` to **freeComputeStart**.
+Free compute needs an auth token but **no on-chain transaction** (no escrow, no payment). You do **not** sign anything by hand — \`create_auth_token\` mints the JWT internally:
+1. **create_auth_token** with \`ephemeral: true\` (a throwaway key is fine — free compute needs no funds), or pass the user's own \`privateKey\`. Returns a **JWT**.
+2. Pass the JWT as \`authToken\` to **freeComputeStart**.
+
+(If the user already has a JWT, skip this and pass it straight to \`freeComputeStart\` as \`authToken\`.)
 
 ### Targeting the node
 Pass **\`multiaddress\`** explicitly — a bare \`nodeId\` often fails to dial. Use the node's **own announced multiaddr** from \`find_provider\`, \`node_status\`, or peer discovery; do not hardcode one. Host, port, and transport vary per node — the shape looks like \`["/dns4/<host>/tcp/<port>/ws/p2p/<peerId>"]\`, but the port is **not** always 9001.
