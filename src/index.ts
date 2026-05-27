@@ -64,7 +64,16 @@ function attachDisposableKeyNotice(server: ReturnType<typeof createServer>): voi
     server.server
       .elicitInput({
         message: DISPOSABLE_KEY_DISCLAIMER,
-        requestedSchema: { type: 'object', properties: {} }
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            acknowledge: {
+              type: 'boolean',
+              title: 'I understand',
+              description: 'This disposable key is not persisted and carries no warranty.'
+            }
+          }
+        }
       })
       .catch((error) => console.error('Disposable-key elicitation failed:', error))
   }
