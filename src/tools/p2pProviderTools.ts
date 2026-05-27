@@ -419,7 +419,13 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P start paid compute',
       description: `Starts a paid compute job (\`startCompute\`). Requires auth.
 
-**Need auth?** First ask the user if they already have an auth token (JWT) — if so, pass it directly as \`authToken\`, no minting needed. Otherwise call \`create_auth_token\`: paid jobs need a funded key, so ask for their own private key (an ephemeral key has no funds), then pass the returned JWT here as \`authToken\`.
+**Paid jobs need an on-chain escrow deposit + authorization made with the user's own wallet — do NOT mint a token here (\`create_auth_token\` does not fund escrow).** If the user does not already have a ready \`authToken\`, prompt them to do this in the dashboard, then come back:
+1. Open **https://dashboard.oncompute.ai/nodes/<node-id>** — replace \`<node-id>\` with this job's target node peer ID.
+2. In the **Environments** box, select the compute environment for the job.
+3. Do the **deposit** and **authorization** (this funds the escrow the job will draw from).
+4. Copy the **auth token** the dashboard issues and paste it back here.
+
+Then call this tool with that token as \`authToken\`. If the user already has a valid token for a funded, authorized consumer, just pass it directly.
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
