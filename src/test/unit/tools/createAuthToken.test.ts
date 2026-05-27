@@ -36,9 +36,9 @@ describe('create_auth_token tool', () => {
     expect(res.isError).to.not.equal(true)
     const out = resultObject(res)
     expect(out.token).to.equal('jwt-ephemeral')
-    expect(out.address).to.match(/^0x[0-9a-fA-F]{40}$/)
+    expect(out.consumerAddress).to.match(/^0x[0-9a-fA-F]{40}$/)
     expect(out.privateKey).to.match(/^0x[0-9a-fA-F]{64}$/)
-    expect(out.address.toLowerCase()).to.equal(signerAddress?.toLowerCase())
+    expect(out.consumerAddress.toLowerCase()).to.equal(signerAddress?.toLowerCase())
     expect(out.disclaimer).to.be.a('string').and.have.length.greaterThan(0)
   })
 
@@ -52,7 +52,7 @@ describe('create_auth_token tool', () => {
     expect(res.content[0].text).to.not.contain(VALID_PK)
     const out = resultObject(res)
     expect(out.token).to.equal('jwt-own')
-    expect(out.address).to.match(/^0x[0-9a-fA-F]{40}$/)
+    expect(out.consumerAddress).to.match(/^0x[0-9a-fA-F]{40}$/)
     expect(out.privateKey).to.equal(undefined)
   })
 

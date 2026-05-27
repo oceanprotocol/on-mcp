@@ -1094,7 +1094,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
 - **ephemeral: true** — the server generates a throwaway key (no funds initially). The response includes the generated \`privateKey\`, so the user can keep it and fund its address for paid jobs if they want.
 - **privateKey** — the user's own existing key (e.g. one already funded for paid jobs). **Security:** a pasted key transits the chat/LLM context — recommend **testnet keys only**. The key is never echoed back.
 
-**Returns:** \`token\` (JWT) to pass as **authToken** on later calls, plus \`address\`; for \`ephemeral\`, also \`privateKey\` and a disclaimer.`,
+**Returns (always):** \`token\` (JWT) to pass as **authToken** on later calls, and \`consumerAddress\` — the public address that owns the buckets/jobs/results created with this token. For \`ephemeral\`, also \`privateKey\` and a disclaimer.`,
       inputSchema: {
         ...nodeTargetSchema,
         ephemeral: z
@@ -1145,7 +1145,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
           }
           return commandResultPayload('create_auth_token', {
             token,
-            address: wallet.address
+            consumerAddress: wallet.address
           })
         }
 
@@ -1157,7 +1157,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
         )
         return commandResultPayload('create_auth_token', {
           token,
-          address: ephemeralWallet.address,
+          consumerAddress: ephemeralWallet.address,
           privateKey: ephemeralWallet.privateKey,
           disclaimer: EPHEMERAL_CONSUMER_KEY_DISCLAIMER
         })
