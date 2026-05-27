@@ -335,7 +335,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
   const computeAlgorithmSchema = z
     .record(z.string(), z.unknown())
     .describe(
-      'ComputeAlgorithm: meta.container (image, tag, entrypoint, checksum), optional documentId, serviceId, transferTxId, envs, etc.'
+      'ComputeAlgorithm. Recommended no-build path: meta.rawcode (inline source) + meta.container (image, tag, checksum, entrypoint e.g. "python $ALGO") against a prebuilt oceanprotocol/c2d_examples image. Or reference a published algorithm via documentId/serviceId/transferTxId. See resource ocean://docs/c2d-algorithm-authoring for image catalog, filesystem contract, and free-compute auth.'
     )
 
   const computeResourcesSchema = z

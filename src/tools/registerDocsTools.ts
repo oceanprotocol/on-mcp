@@ -86,12 +86,12 @@ const WORKFLOWS: Record<string, { title: string; persona: string; steps: string[
     title: 'Write a C2D Algorithm',
     persona: 'Algorithm Writer',
     steps: [
-      'Use the new_c2d_algo_python or new_c2d_algo_js prompt to generate a ready-to-run boilerplate with correct conventions.',
-      'Key C2D conventions:\n  * Read input DIDs from the DIDS environment variable (JSON array string)\n  * Input files are at /data/inputs/<DID>/<filename>\n  * ALL output files must be written to /data/outputs/\n  * Exit 0 on success, non-zero on failure',
-      'Python entrypoint in the Dockerfile: CMD ["python", "algo.py"]\n  JavaScript: CMD ["node", "algo.js"]',
-      'Test locally by setting DIDS=\'["test-did"]\' and creating a mock /data/inputs/test-did/ directory.',
-      'Validate your algorithm before submitting: use the validate_algo_structure tool by pasting your code.',
-      'Build and test the Docker image locally:\n  docker build -t my-algo . && docker run -e DIDS=\'["did:op:test"]\' my-algo'
+      'RECOMMENDED PATH (no Docker build). Read the resource ocean://docs/c2d-algorithm-authoring (via get_doc or get_resource) first. You submit your source inline as algorithm.meta.rawcode against a prebuilt oceanprotocol/c2d_examples image - no Dockerfile, no registry push, no image to publish.',
+      'Pick a prebuilt image by matching your imports to the catalog in that resource (py-lite, py-panda, py-sql, py-general, js-general). Use the smallest image that covers your imports. If none cover them, build your own image (CUSTOM IMAGE step below).',
+      'Write to the C2D filesystem contract and runtime constraints: read inputs from /data/inputs, write outputs to /data/outputs, exit 0. See ocean://docs/c2d-algorithm-authoring for the exact rules (recursive input walk, DIDS, algoCustomData.json, outputs.tar, no runtime installs, algorithm.log).',
+      'Validate before submitting: use the validate_algo_structure tool by pasting your code.',
+      'Submit: pass the algorithm object (meta.container { image, tag, checksum, entrypoint e.g. "python $ALGO" } + meta.rawcode) to computeStart (paid) or freeComputeStart (free). See ocean://docs/c2d-algorithm-authoring for the exact shape and free-compute auth.',
+      'CUSTOM IMAGE (only if no prebuilt image has your dependencies): use the new_c2d_algo_python / new_c2d_algo_js prompt for a Dockerfile-based skeleton, build and push the image to a registry, then reference it in container.image / tag / checksum.'
     ]
   },
   publish_algorithm: {
