@@ -1,8 +1,10 @@
 import type { DocIndex } from '../docs/loader.js'
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
+import { C2D_ALGORITHM_AUTHORING_MARKDOWN } from '../utils/c2dAlgorithmAuthoring.js'
 import { C2D_FIND_PROVIDER_RESOURCE_MARKDOWN } from '../utils/c2dProviderSearchString.js'
 
 export const C2D_FIND_PROVIDER_URI = 'ocean://docs/c2d-find-provider-search'
+export const C2D_ALGORITHM_AUTHORING_URI = 'ocean://docs/c2d-algorithm-authoring'
 export const EVM_SUPPORTED_CHAINS_URI = 'ocean://evm/supported-chains'
 
 export type ResourceSummary = {
@@ -67,6 +69,14 @@ export function listBuiltinResources(): ResourceSummary[] {
       mimeType: 'text/markdown'
     },
     {
+      name: 'c2d-algorithm-authoring',
+      uri: C2D_ALGORITHM_AUTHORING_URI,
+      title: 'C2D algorithm authoring (rawcode + prebuilt image)',
+      description:
+        'Recommended C2D path: prebuilt oceanprotocol/c2d_examples image + inline rawcode. Image catalog, algorithm object shape, /data input/output contract, constraints, free-compute auth, and node targeting.',
+      mimeType: 'text/markdown'
+    },
+    {
       name: 'evm-supported-chains',
       uri: EVM_SUPPORTED_CHAINS_URI,
       title: 'EVM supported chains',
@@ -86,6 +96,14 @@ export async function getBuiltinResourceContent(
       uri,
       mimeType: 'text/markdown',
       text: C2D_FIND_PROVIDER_RESOURCE_MARKDOWN
+    }
+  }
+
+  if (uri === C2D_ALGORITHM_AUTHORING_URI) {
+    return {
+      uri,
+      mimeType: 'text/markdown',
+      text: C2D_ALGORITHM_AUTHORING_MARKDOWN
     }
   }
 
