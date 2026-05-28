@@ -63,28 +63,28 @@ export const P2P_ADMIN_CONFIG_WARNING = `**Operator-only:** Misuse can break or 
 
 /** Returned alongside an ephemeral consumer key so the user understands its throwaway nature. */
 export const EPHEMERAL_CONSUMER_KEY_DISCLAIMER =
-  'This is a throwaway consumer key generated for this job. The server does not persist it — keep the returned privateKey if you want to reuse it. It starts with no funds; fund its address if you need it for paid jobs. Ocean Network is not responsible for any leaked, drained, or lost keys.'
+  'Throwaway key — not persisted server-side. Save the returned privateKey to reuse. No funds initially; fund the address for paid jobs. Ocean Network is not liable for lost or leaked keys.'
 
 /** Shared payment/duration semantics for initializeCompute + computeStart. Field names verified against ocean-node @types/Fees.ts and C2D.ts. */
-export const P2P_COMPUTE_PAYMENT_GUIDE = `## Duration vs escrow lock — NOT the same thing
-- **maxJobDuration** (computeStart) / **validUntil** (initializeCompute): seconds the algorithm **container** may run. The node clamps it into the env's [\`minJobDuration\`, \`maxJobDuration\`] and bills at least \`minJobDuration\`. For a quick test use **env.minJobDuration** (often 60).
-- **payment.minLockSeconds** (initializeCompute response): how long the **escrow lock** must stay valid = \`maxJobDuration + queueMaxWaitTime + the node's claimDurationTimeout\` (a config buffer, default **3600s**). It is the run time plus a buffer, so it is usually larger than the job duration — and much larger on nodes configured with a big claimDurationTimeout. Your escrow authorization's \`maxLockSeconds\` must be **≥** this; do not shrink job duration to match it.
+export const P2P_COMPUTE_PAYMENT_GUIDE = `## Duration vs escrow lock — different things
+- **maxJobDuration** / **validUntil**: container run time (seconds). Clamped to env \`[minJobDuration, maxJobDuration]\`; billed at ≥ \`minJobDuration\`. Use \`env.minJobDuration\` for a quick test.
+- **payment.minLockSeconds**: escrow-lock requirement = \`maxJobDuration + queueMaxWaitTime + claimDurationTimeout\` (node config; default 3600s). Always ≥ job duration. Your escrow authorization's \`maxLockSeconds\` must be **≥** this — don't shrink job duration to match.
 
-## Cost — do not compute it yourself
-Cost ≈ Σ over resources of (per-minute price × allocated amount) × \`ceil(maxJobDuration / 60)\`. The node enforces **resource minimums** (\`resources[].min\` for cpu/ram/disk), so requesting \`cpu: 1\` may bill for the env minimum (e.g. \`cpu: 8\`). Trust **payment.amount** from initializeCompute (**raw** token units, not human-readable) — never your own math.
+## Cost — never self-compute; always denominate for the user
+Node enforces \`resources[].min\`, so requesting \`cpu: 1\` may bill the env minimum. Trust **payment.amount** (raw token base units). Before showing the cost: call **get_erc20_token_info(chainId, payment.token, rawAmount=payment.amount)** and display \`<formattedAmount> <symbol>\` (raw only as a parenthetical). Use the raw value for the on-chain comparisons below.
 
 ## Typical paid flow
-1. **getComputeEnvironments** → pick env; note \`minJobDuration\` and each \`resources[].min\`.
-2. **initializeCompute** with \`validUntil = env.minJobDuration\` → read \`payment.amount\`, \`payment.minLockSeconds\`, \`payment.token\`, \`payment.payee\`.
-3. Verify escrow before starting: \`escrow_get_authorizations(payer, payee, token)\` returns an **array** of auth tuples (usually one), each in ABI order \`[payee, maxLockedAmount, currentLockedAmount, maxLockSeconds, maxLockCounts, currentLocks]\` — so read \`result[0][1]\` for maxLockedAmount, etc. Require \`maxLockedAmount ≥ payment.amount\` and \`maxLockSeconds ≥ payment.minLockSeconds\`; and \`escrow_get_user_funds ≥ payment.amount\`. Deposit/authorize (dashboard or escrow tools) if short.
+1. **getComputeEnvironments** → pick env; note \`minJobDuration\` and \`resources[].min\`.
+2. **initializeCompute** with \`validUntil = env.minJobDuration\` → read \`payment.{amount,minLockSeconds,token,payee}\`.
+3. **escrow_get_authorizations(token, payer, payee)** → array of tuples in ABI order \`[payee, maxLockedAmount, currentLockedAmount, maxLockSeconds, maxLockCounts, currentLocks]\` (uint256 fields are decimal strings — compare via \`BigInt\`). Require \`maxLockedAmount ≥ payment.amount\`, \`maxLockSeconds ≥ payment.minLockSeconds\`, and \`escrow_get_user_funds ≥ payment.amount\`. Deposit/authorize if short.
 4. **computeStart** with \`maxJobDuration = env.minJobDuration\`.`
 
 /** Tells the calling model to poll a started job to completion and fetch output without pausing to ask. Status values verified against ocean-node C2DStatusNumber/C2DStatusText. */
-export const P2P_COMPUTE_POLLING_GUIDE = `## After starting: poll to completion, then fetch the output — do NOT ask between polls
-Once a job is started, drive it to the end yourself: call **computeStatus** for that job repeatedly (every ~5–10s; image pulls take time) until a terminal state, then fetch the result. Do not stop to ask the user whether to poll. Read the numeric **status** (\`C2DStatusNumber\`):
-- **70 (Job finished)** or **71 (settled)** → success. Fetch output with **getComputeResult** (base64 stream) or **get_compute_result_url** (URL).
-- A failure state — \`statusText\` contains "failed" / "expired" / "vulnerabilities" / "disk quota exceeded" (e.g. 11 PullImageFailed, 13 BuildImageFailed, 32 AlgorithmProvisioningFailed, 41 AlgorithmFailed) → stop and report it; do not keep polling.
-- Anything else (0,1,10,12,20,30,40,50,60 — queued / pulling / provisioning / running / publishing) → still in progress; keep polling.`
+export const P2P_COMPUTE_POLLING_GUIDE = `## After starting: poll to completion, fetch output — do NOT ask between polls
+Call **computeStatus** every ~5–10s until terminal, then fetch the result without asking. Status (\`C2DStatusNumber\`):
+- **70 / 71** → success. Fetch via **getComputeResult** (base64) or **get_compute_result_url** (URL).
+- **Failure** (\`statusText\` contains "failed" / "expired" / "vulnerabilities" / "disk quota exceeded"; e.g. 11, 13, 32, 41, 61, 62) → stop and report.
+- Anything else → in progress; keep polling.`
 
 /** Instructs MCP clients to confirm the node exposes persistent storage via status before calling PS tools. Mirrors ocean-node statusHandler (persistentStorage only when config.persistentStorage is set). */
 export const P2P_PERSISTENT_STORAGE_PREREQUISITE = `## Node capability check (required first)

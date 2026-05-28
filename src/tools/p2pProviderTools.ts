@@ -349,11 +349,11 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'initializeCompute',
     {
       title: 'P2P initialize compute',
-      description: `Price / validation step for compute (\`initializeCompute\`). **Does not require** authToken or signature in ocean.js; the node validates parameters and returns payment / fee hints (\`ProviderComputeInitializeResults\`). **Always call this before \`computeStart\` to learn the real cost.**
+      description: `Pricing/validation for compute (\`initializeCompute\`). No auth required. **Always call before \`computeStart\` to learn the real cost.**
 
 ${P2P_COMPUTE_PAYMENT_GUIDE}
 
-**Returns:** \`{ algorithm?, datasets?, payment }\` where \`payment\` = \`{ escrowAddress, payee, chainId, token, amount, minLockSeconds }\`. \`amount\` is **raw** token units; \`minLockSeconds\` is the escrow-lock requirement (not the job duration).`,
+**Returns:** \`{ algorithm?, datasets?, payment: { escrowAddress, payee, chainId, token, amount, minLockSeconds } }\`. \`amount\` is raw token units; \`minLockSeconds\` is the escrow-lock requirement (not job duration).`,
       inputSchema: {
         ...nodeTargetSchema,
         assets: computeAssetList,
@@ -365,7 +365,7 @@ ${P2P_COMPUTE_PAYMENT_GUIDE}
         validUntil: z
           .number()
           .describe(
-            'Container run time in seconds (same value you will pass as computeStart maxJobDuration), clamped to the env [minJobDuration, maxJobDuration]. NOT the escrow lock period — that is payment.minLockSeconds in the response. For a quick test use env.minJobDuration.'
+            'Container run time in seconds (= computeStart `maxJobDuration`). NOT the escrow lock — see Duration vs escrow lock in the description.'
           ),
         consumerAddress: z.string(),
         resources: computeResourcesSchema,
@@ -423,13 +423,13 @@ ${P2P_COMPUTE_PAYMENT_GUIDE}
       title: 'P2P start paid compute',
       description: `Starts a paid compute job (\`startCompute\`). Requires auth.
 
-**Paid jobs need an on-chain escrow deposit + authorization made with the user's own wallet — do NOT mint a token here (\`create_auth_token\` does not fund escrow).** If the user does not already have a ready \`authToken\`, prompt them to do this in the dashboard, then come back:
-1. Open **https://dashboard.oncompute.ai/nodes/<node-id>** — replace \`<node-id>\` with this job's target node peer ID.
-2. In the **Environments** box, select the compute environment for the job.
-3. Do the **deposit** and **authorization** (this funds the escrow the job will draw from).
-4. Copy the **auth token** the dashboard issues and paste it back here.
+**Paid jobs need on-chain escrow deposit + authorization — do NOT mint a token here.** If the user has no \`authToken\`, send them to the dashboard, then come back:
+1. Open **https://dashboard.oncompute.ai/nodes/<node-id>** — fill in this job's target node peer ID.
+2. **Environments** box → pick the compute environment.
+3. Complete **deposit** and **authorization** (funds the escrow).
+4. Copy the issued **auth token** and paste it back.
 
-Then call this tool with that token as \`authToken\`. If the user already has a valid token for a funded, authorized consumer, just pass it directly.
+Pass that token as \`authToken\`. (If they already have a valid token for a funded, authorized consumer, just use it.)
 
 ${P2P_COMPUTE_PAYMENT_GUIDE}
 
@@ -437,9 +437,7 @@ ${P2P_COMPUTE_POLLING_GUIDE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
-**protocolCommand:** \`startCompute\`.
-
-**Returns:** \`ComputeJob\` or array of jobs (node-dependent).`,
+**protocolCommand:** \`startCompute\`. **Returns:** \`ComputeJob\` or array.`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -449,7 +447,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
         maxJobDuration: z
           .number()
           .describe(
-            'Container run time in seconds, NOT the escrow lock period. Clamped to the env [minJobDuration, maxJobDuration] and billed at a minimum of minJobDuration. Use the same value you passed to initializeCompute as validUntil (env.minJobDuration for a quick test).'
+            'Container run time in seconds (= initializeCompute `validUntil`). NOT the escrow lock — see Duration vs escrow lock in the description.'
           ),
         token: z.string().describe('Fee token contract address.'),
         resources: computeResourcesSchema,
@@ -501,7 +499,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P start free compute',
       description: `Starts a free compute job (\`freeStartCompute\`). Requires auth.
 
-**Need auth?** First ask the user if they already have an auth token (JWT) — if so, pass it directly as \`authToken\`, no minting needed. Otherwise call \`create_auth_token\`: ask whether to use an ephemeral key (generated, fine for free compute) or their own private key, then pass the returned JWT here as \`authToken\`.
+**Need auth?** Pass an existing JWT as \`authToken\`, or call \`create_auth_token\` first (ephemeral or own key) and pass the returned JWT. Ephemeral works on open free envs; check \`env.free.access\` from getComputeEnvironments — if \`addresses\` or \`accessLists\` is non-empty, the consumer must be allowed.
 
 ${P2P_COMPUTE_POLLING_GUIDE}
 
@@ -608,13 +606,13 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'computeStatus',
     {
       title: 'P2P compute status',
-      description: `Queries job status (\`getComputeStatus\`). Requires auth (JWT or completeSignature so the library can supply \`consumerAddress\` / headers).
+      description: `Queries job status (\`getComputeStatus\`). Requires auth.
 
 ${P2P_COMPUTE_POLLING_GUIDE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
-**Returns:** \`ComputeJob\` or list of jobs for the consumer.`,
+**Returns:** \`ComputeJob\` or list of jobs.`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1108,28 +1106,24 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P create auth token',
       description: `Mints a node JWT via \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\`. The token's identity is the **consumer** for later compute calls.
 
-**Mint once per session and reuse the returned JWT for every later call.** Buckets, jobs, and results are owned by the token's **consumer address**. Re-minting — especially a new \`ephemeral\` key — produces a **different consumer** that cannot access resources created by the earlier token. For a stable identity across mints, reuse the same \`privateKey\`.
+**Mint once per session, reuse the JWT.** Buckets/jobs/results are owned by the consumer address; re-minting (especially \`ephemeral\`) creates a new consumer that can't see prior resources. If the user already has a JWT, skip this tool and pass it as \`authToken\` directly.
 
-**If the user already has an auth token (JWT), skip this tool** and pass it directly as \`authToken\` on the compute call.
+**Ask which key to use**, then pass exactly one:
+- **ephemeral: true** — server-generated throwaway key; the returned \`privateKey\` is shown so the user can keep or fund it (funded ephemeral = paid jobs).
+- **privateKey** — user's existing key (typically already funded). **Pasted keys transit the chat/LLM — testnet only.** Never echoed back.
 
-**Before starting a job, ask the user which key to use** and pass exactly one of:
-- **ephemeral: true** — the server generates a throwaway key (no funds initially). The response includes the generated \`privateKey\`, so the user can keep it and fund its address for paid jobs if they want.
-- **privateKey** — the user's own existing key (e.g. one already funded for paid jobs). **Security:** a pasted key transits the chat/LLM context — recommend **testnet keys only**. The key is never echoed back.
-
-**Returns (always):** \`token\` (JWT) to pass as **authToken** on later calls, and \`consumerAddress\` — the public address that owns the buckets/jobs/results created with this token. For \`ephemeral\`, also \`privateKey\` and a disclaimer.`,
+**Returns:** \`token\` (pass as \`authToken\` later), \`consumerAddress\`. For \`ephemeral\`, also \`privateKey\` + disclaimer.`,
       inputSchema: {
         ...nodeTargetSchema,
         ephemeral: z
           .boolean()
           .optional()
-          .describe(
-            'Generate a throwaway consumer key for this token (no funds initially; fund its address for paid use). Returns the generated privateKey.'
-          ),
+          .describe('Generate a throwaway consumer key; returns the privateKey.'),
         privateKey: z
           .string()
           .optional()
           .describe(
-            "The user's own existing key (0x-hex), e.g. one already funded for paid jobs. Transits the chat/LLM context — testnet keys only. Never echoed back."
+            "User's own 0x-hex key. Testnet only — pasted keys transit the chat/LLM. Never echoed back."
           )
       }
     },
