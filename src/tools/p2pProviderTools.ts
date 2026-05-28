@@ -12,6 +12,7 @@ import {
   P2P_COMPUTE_PAYMENT_GUIDE,
   P2P_COMPUTE_POLLING_GUIDE,
   P2P_RECOMMENDED_NODES_GUIDE,
+  STORAGE_OBJECT_SHAPE_GUIDE,
   nodeTargetSchema,
   parseNodeTarget,
   P2P_ADMIN_CONFIG_WARNING,
@@ -300,7 +301,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'getFileInfo',
     {
       title: 'P2P get file info',
-      description: `Resolves file metadata via \`fileInfo\` (\`P2pProvider.getFileInfo\`). No consumer signature. \`file\` must be a \`StorageObject\` (url, ipfs, arweave, s3, ftp, or nodePersistentStorage).
+      description: `Resolves file metadata via \`fileInfo\` (\`P2pProvider.getFileInfo\`). No consumer signature.
+
+${STORAGE_OBJECT_SHAPE_GUIDE}
 
 **Returns:** Array of \`FileInfo\` entries (length 1 for a single object).`,
       inputSchema: {
@@ -335,7 +338,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
   const computeAssetList = z
     .array(z.record(z.string(), z.unknown()))
     .describe(
-      'ComputeAsset[]: each needs documentId, serviceId; optional fileObject, transferTxId, userdata.'
+      `ComputeAsset[]: each needs documentId, serviceId; optional fileObject, transferTxId, userdata. When supplying \`fileObject\`, see the StorageObject shape rules — URL files require both \`url\` and \`method\` ('get' | 'post') or the node rejects with "URL or method are missing". ${STORAGE_OBJECT_SHAPE_GUIDE}`
     )
 
   const computeAlgorithmSchema = z

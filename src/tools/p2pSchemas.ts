@@ -61,6 +61,15 @@ If you reimplement signing without ocean.js, your wallet must produce the same E
 
 export const P2P_ADMIN_CONFIG_WARNING = `**Operator-only:** Misuse can break or leak node configuration. Payload must match ocean-node signing expectations for \`fetchConfig\` / \`pushConfig\`.`
 
+/** Shape rules for fileObject — verified against ocean-node @types/fileObject.ts and @types/PersistentStorage.ts. Required fields per type. */
+export const STORAGE_OBJECT_SHAPE_GUIDE = `## fileObject shape (required fields per \`type\`)
+- \`{ "type": "url", "url": "...", "method": "get" | "post", "headers"?: {...} }\` — **\`method\` is REQUIRED** (lowercase \`get\` or \`post\`; the node rejects with *"URL or method are missing"* otherwise). The URL must not look like a bare file path.
+- \`{ "type": "ipfs", "hash": "..." }\`
+- \`{ "type": "arweave", "transactionId": "..." }\`
+- \`{ "type": "s3", "s3Access": { "endpoint", "objectKey", "bucket", "accessKeyId", "secretAccessKey", "region"?, "forcePathStyle"? } }\`
+- \`{ "type": "ftp", "url": "ftp://[user:password@]host[:port]/path" }\`
+- \`{ "type": "nodePersistentStorage", "bucketId": "...", "fileName": "..." }\` — **datasets only** (rejected as an algorithm fileObject). Both \`bucketId\` and \`fileName\` are required (the node throws *"nodePersistentStorage requires bucketId and fileName"* otherwise). Inside the C2D container, the file mounts at \`/data/persistentStorage/<bucketId>/<fileName>\` — not under \`/data/inputs/\`.`
+
 /** Ocean Protocol's recommended compute nodes — default targets when the user has not specified one. */
 export const OCEAN_RECOMMENDED_NODES = [
   {
