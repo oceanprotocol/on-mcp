@@ -31,8 +31,13 @@ type Params = {
   docsIndex: DocIndex
 }
 
-const SEPOLIA_CHAIN_ID = '11155111'
-const SEPOLIA_USDC = '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238'
+const BASE_CHAIN_ID = '8453'
+const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
+const BASE_COMPY = '0x298f163244e0c8cc9316d6e97162e5792ac5d410'
+const BASE_FEE_TOKENS: ReadonlyArray<{ symbol: string; address: string }> = [
+  { symbol: 'USDC', address: BASE_USDC },
+  { symbol: 'COMPY', address: BASE_COMPY }
+]
 
 const PRIVATE_IP_PATTERNS = [
   /^\/ip4\/127\./,
@@ -62,8 +67,8 @@ const WORKFLOWS: Record<string, { title: string; persona: string; steps: string[
     steps: [
       'Ensure node version is >= 2.0.0. Check at: http://localhost:8000/api/services/info',
       'Set P2P_ANNOUNCE_ADDRESSES to your server\'s public IP:\n  P2P_ANNOUNCE_ADDRESSES=["/ip4/YOUR_PUBLIC_IP/tcp/8000"]',
-      'Configure the Sepolia escrow address (chain ID 11155111) - see Ocean Protocol deployment addresses.',
-      'Set DOCKER_COMPUTE_ENVIRONMENTS with at least one environment that:\n  - Includes Sepolia (11155111) fee chain\n  - Accepts Sepolia USDC (0x1c7d4b196cb0c7b01d743fbc6116a902379c7238) as feeToken\n  - Has GPU resource listed\n  - Total resource price: 0 < total <= 1 USDC/min (for benchmark jobs)\n  - Adds the Ocean monitoring consumer wallet to access.addresses',
+      'Configure the Base escrow address (chain ID 8453) - see Ocean Protocol deployment addresses.',
+      'Set DOCKER_COMPUTE_ENVIRONMENTS with at least one environment that:\n  - Includes Base (8453) fee chain\n  - Accepts Base USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) and/or COMPY (0x298f163244e0c8cc9316D6E97162e5792ac5d410, the Ocean grant token) as feeToken\n  - Has GPU resource listed\n  - Total resource price: 0 < total <= 1 USDC-equivalent/min (for benchmark jobs)\n  - Adds the Ocean monitoring consumer wallet to access.addresses',
       'Restart: docker-compose down && docker-compose up -d',
       "Verify eligibility on the Nodes Dashboard under your node's 'Eligibility' tab."
     ]
@@ -121,7 +126,7 @@ const WORKFLOWS: Record<string, { title: string; persona: string; steps: string[
     title: 'Run a Compute Job via Ocean CLI',
     persona: 'Demand Side',
     steps: [
-      'Set required environment variables:\n  export PRIVATE_KEY=0x...\n  export RPC=https://...\n  export NODE_URL=http://your-node:8000\n  export PAYMENT_TOKEN=0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238  # Sepolia USDC',
+      "Set required environment variables:\n  export PRIVATE_KEY=0x...\n  export RPC=https://mainnet.base.org\n  export NODE_URL=http://your-node:8000\n  # Pick the env's fee token. Common Base options:\n  #   USDC:  0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\n  #   COMPY: 0x298f163244e0c8cc9316D6E97162e5792ac5d410 (Ocean grant token)\n  export PAYMENT_TOKEN=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
       'Find available compute environments:\n  npm run cli getComputeEnvironments\n  Note the environment ID (ENV_ID) you want to use.',
       'Get your dataset and algorithm DIDs (from publishing them, or browse the network).',
       'Start the job:\n  npm run cli startCompute \\\n    $DATASET_DID \\\n    $ALGO_DID \\\n    $ENV_ID \\\n    60 \\\n    $PAYMENT_TOKEN \\\n    \'[{"id":"cpu","amount":1},{"id":"disk","amount":1},{"id":"ram","amount":1}]\'\n  Add --accept true to skip the payment confirmation prompt.',
@@ -159,11 +164,11 @@ const WORKFLOWS: Record<string, { title: string; persona: string; steps: string[
     ]
   },
   fund_wallet: {
-    title: 'Fund Your Wallet with USDC on Base',
+    title: 'Fund Your Wallet on Base (USDC or COMPY)',
     persona: 'Demand Side',
     steps: [
-      'Ocean runs on the Base network (Ethereum L2) - you need USDC on Base.',
-      'Options to get USDC on Base:\n  A) Coinbase Exchange: send USDC directly to your Base address (no bridge fee).\n  B) Base Bridge (bridge.base.org): deposit ETH or USDC from Ethereum Mainnet.\n  C) Superbridge: cross-chain bridge from other networks.\n  D) Fiat On-Ramp (coming soon in Dashboard): buy USDC directly with credit card via MoonPay.',
+      "Ocean runs on the Base network (Ethereum L2). Common fee tokens: **USDC** (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) and **COMPY** (0x298f163244e0c8cc9316D6E97162e5792ac5d410 — Ocean grant token). Check the target env's `fee_tokens` to know which it accepts.",
+      'Options to get USDC on Base:\n  A) Coinbase Exchange: send USDC directly to your Base address (no bridge fee).\n  B) Base Bridge (bridge.base.org): deposit ETH or USDC from Ethereum Mainnet.\n  C) Superbridge: cross-chain bridge from other networks.\n  D) Fiat On-Ramp (coming soon in Dashboard): buy USDC directly with credit card via MoonPay.\n  Options to get COMPY: receive a grant allocation from Ocean Network (grant token, not openly tradable).',
       'Check your balance in the Nodes Dashboard wallet section.',
       'Deposit to escrow before running jobs: the dashboard will prompt you if escrow is insufficient.',
       'To manage escrow via CLI:\n  Deposit: npm run cli depositEscrow --token 0xToken --amount 100\n  Check: npm run cli getUserFundsEscrow --token 0xToken\n  Withdraw: npm run cli withdrawFromEscrow --token 0xToken --amount 50'
@@ -675,25 +680,25 @@ export function registerDocsTools({ server, docsIndex }: Params): void {
       }
 
       if (escrowChains && escrowChains.length > 0) {
-        const hasSepolia = escrowChains.includes(SEPOLIA_CHAIN_ID)
+        const hasBase = escrowChains.includes(BASE_CHAIN_ID)
         results.push({
-          pass: hasSepolia,
-          check: 'Escrow Configured for Sepolia (11155111)',
-          status: hasSepolia ? 'pass' : 'fail',
-          detail: hasSepolia
-            ? 'Sepolia escrow address is configured.'
-            : `Escrow only configured for chains: ${escrowChains.join(', ')}. Sepolia (11155111) is missing.`,
-          fix: hasSepolia
+          pass: hasBase,
+          check: 'Escrow Configured for Base (8453)',
+          status: hasBase ? 'pass' : 'fail',
+          detail: hasBase
+            ? 'Base escrow address is configured.'
+            : `Escrow only configured for chains: ${escrowChains.join(', ')}. Base (8453) is missing.`,
+          fix: hasBase
             ? undefined
-            : 'Add the Ocean Protocol Escrow contract address for Sepolia to your node configuration.'
+            : 'Add the Ocean Protocol Escrow contract address for Base to your node configuration.'
         })
       } else {
         results.push({
           pass: false,
-          check: 'Escrow Configured for Sepolia (11155111)',
+          check: 'Escrow Configured for Base (8453)',
           status: 'warn',
           detail: 'Escrow chain configuration not provided.',
-          fix: 'Configure escrowAddress in your node settings to include Sepolia (chain ID 11155111).'
+          fix: 'Configure escrowAddress in your node settings to include Base (chain ID 8453).'
         })
       }
 
@@ -705,30 +710,31 @@ export function registerDocsTools({ server, docsIndex }: Params): void {
           const environmentLabel = environment.id
             ? `env "${environment.id}"`
             : `env #${index + 1}`
-          const supportsSepolia =
-            environment.fee_chain_ids?.includes(SEPOLIA_CHAIN_ID) ?? false
-          const hasUsdc =
-            environment.fee_tokens?.some(
-              (token) => token.toLowerCase() === SEPOLIA_USDC
-            ) ?? false
+          const supportsBase = environment.fee_chain_ids?.includes(BASE_CHAIN_ID) ?? false
+          const lowerFeeTokens = (environment.fee_tokens ?? []).map((token) =>
+            token.toLowerCase()
+          )
+          const acceptedTokens = BASE_FEE_TOKENS.filter((t) =>
+            lowerFeeTokens.includes(t.address)
+          )
 
-          if (!supportsSepolia) {
+          if (!supportsBase) {
             results.push({
               pass: false,
-              check: `${environmentLabel}: Sepolia fee chain`,
+              check: `${environmentLabel}: Base fee chain`,
               status: 'fail',
-              detail: `${environmentLabel} does not list Sepolia (11155111) in its fee chains.`,
-              fix: 'Add chain ID "11155111" to this environment fee chain configuration.'
+              detail: `${environmentLabel} does not list Base (8453) in its fee chains.`,
+              fix: 'Add chain ID "8453" to this environment fee chain configuration.'
             })
           }
 
-          if (supportsSepolia && !hasUsdc) {
+          if (supportsBase && acceptedTokens.length === 0) {
             results.push({
               pass: false,
-              check: `${environmentLabel}: Sepolia USDC fee token`,
-              status: 'fail',
-              detail: `${environmentLabel} does not accept Sepolia USDC (${SEPOLIA_USDC}) as fee token.`,
-              fix: `Add the Sepolia USDC address ${SEPOLIA_USDC} to this environment fee tokens.`
+              check: `${environmentLabel}: Base fee token (USDC or COMPY)`,
+              status: 'warn',
+              detail: `${environmentLabel} accepts neither Base USDC (${BASE_USDC}) nor COMPY (${BASE_COMPY}); it may use a different fee token.`,
+              fix: `Add Base USDC ${BASE_USDC} and/or COMPY ${BASE_COMPY} to this environment's fee tokens if you want consumers to pay with them.`
             })
           }
 
