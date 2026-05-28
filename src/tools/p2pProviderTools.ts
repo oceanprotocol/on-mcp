@@ -11,6 +11,7 @@ import {
   findProviderInputSchema,
   P2P_COMPUTE_PAYMENT_GUIDE,
   P2P_COMPUTE_POLLING_GUIDE,
+  P2P_RECOMMENDED_NODES_GUIDE,
   nodeTargetSchema,
   parseNodeTarget,
   P2P_ADMIN_CONFIG_WARNING,
@@ -53,8 +54,9 @@ export function registerP2pProviderTools({ server, nodeClient }: Params): void {
     'node_status',
     {
       title: 'Get node status',
-      description:
-        'Gets ocean-node status via the P2P **status** command. Use **nodeId** and/or **multiaddress** to target the peer. The payload may include **persistentStorage** (object, optionally with **accessLists**) only when the node has persistent storage configured—agents must use this to decide if persistent storage bucket/file tools are allowed for that node.',
+      description: `Gets ocean-node status via the P2P **status** command. Use **nodeId** and/or **multiaddress** to target the peer. The payload may include **persistentStorage** (object, optionally with **accessLists**) only when the node has persistent storage configured—agents must use this to decide if persistent storage bucket/file tools are allowed for that node.
+
+${P2P_RECOMMENDED_NODES_GUIDE}`,
       inputSchema: { ...nodeTargetSchema }
     },
     async ({ nodeId, multiaddress, timeout }) => {
@@ -156,8 +158,9 @@ For **multiple** dimensions (e.g. 2 CPUs **and** 8 GB RAM), build one **content*
     'getComputeEnvironments',
     {
       title: 'Get compute environments for a specific node',
-      description:
-        'Calls P2pProvider.getComputeEnvironments — lists compute environments exposed by the target node (no auth).',
+      description: `Calls P2pProvider.getComputeEnvironments — lists compute environments exposed by the target node (no auth).
+
+${P2P_RECOMMENDED_NODES_GUIDE}`,
       inputSchema: { ...nodeTargetSchema }
     },
     async ({ nodeId, multiaddress, timeout }) => {

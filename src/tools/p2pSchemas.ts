@@ -61,6 +61,26 @@ If you reimplement signing without ocean.js, your wallet must produce the same E
 
 export const P2P_ADMIN_CONFIG_WARNING = `**Operator-only:** Misuse can break or leak node configuration. Payload must match ocean-node signing expectations for \`fetchConfig\` / \`pushConfig\`.`
 
+/** Ocean Protocol's recommended compute nodes — default targets when the user has not specified one. */
+export const OCEAN_RECOMMENDED_NODES = [
+  {
+    peerId: '16Uiu2HAmR9z4EhF9zoZcErrdcEJKCjfTpXJfBcmbNppbT3QYtBpi',
+    useFor: 'free' as const,
+    note: '**Free compute** (`freeComputeStart`).'
+  },
+  {
+    peerId: '16Uiu2HAm94yL3Sjem2piKmGkiHCdJyTn3F3aWueZTXKT38ekjuzr',
+    useFor: 'paid' as const,
+    note: '**Paid compute** (`computeStart`) — accepts **COMPY** (Ocean grant token) on Base.'
+  }
+] as const
+
+export const P2P_RECOMMENDED_NODES_GUIDE = `## Default node targets
+If the user has not specified a \`nodeId\` / \`multiaddress\`, default to Ocean's recommended compute nodes by use case:
+${OCEAN_RECOMMENDED_NODES.map(({ peerId, note }) => `- \`${peerId}\` — ${note}`).join('\n')}
+
+Resolve their multiaddrs with \`resolve_peer_multiaddr\` before calling node-targeted tools. Only use \`find_provider\` for capacity/feature discovery beyond these defaults.`
+
 /** Returned alongside an ephemeral consumer key so the user understands its throwaway nature. */
 export const EPHEMERAL_CONSUMER_KEY_DISCLAIMER =
   'Throwaway key — not persisted server-side. Save the returned privateKey to reuse. No funds initially; fund the address for paid jobs. Ocean Network is not liable for lost or leaked keys.'
