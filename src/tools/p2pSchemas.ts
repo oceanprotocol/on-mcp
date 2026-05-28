@@ -68,7 +68,7 @@ export const STORAGE_OBJECT_SHAPE_GUIDE = `## fileObject shape (required fields 
 - \`{ "type": "arweave", "transactionId": "..." }\`
 - \`{ "type": "s3", "s3Access": { "endpoint", "objectKey", "bucket", "accessKeyId", "secretAccessKey", "region"?, "forcePathStyle"? } }\`
 - \`{ "type": "ftp", "url": "ftp://[user:password@]host[:port]/path" }\`
-- \`{ "type": "nodePersistentStorage", "bucketId": "...", "fileName": "..." }\` — **datasets only** (rejected as an algorithm fileObject). Both \`bucketId\` and \`fileName\` are required (the node throws *"nodePersistentStorage requires bucketId and fileName"* otherwise). Inside the C2D container, the file mounts at \`/data/persistentStorage/<bucketId>/<fileName>\` — not under \`/data/inputs/\`.`
+- \`{ "type": "nodePersistentStorage", "bucketId": "...", "fileName": "..." }\` — **datasets only** (rejected as an algorithm fileObject). Both fields required (else *"nodePersistentStorage requires bucketId and fileName"*). **Recommended:** call **\`getPersistentStorageFileObject\`** with the \`bucketId\` + \`fileName\` (from \`listPersistentStorageFiles\` or what \`createPersistentStorageBucket\` + upload returned) and pass its returned descriptor as the dataset's \`fileObject\`. You can also build the literal \`{ type, bucketId, fileName }\` yourself — the node accepts both. Either way, pass it as a **bare-fileObject dataset** (omit \`documentId\` and \`serviceId\`). Inside the C2D container the file mounts at \`/data/persistentStorage/<bucketId>/<fileName>\` (not \`/data/inputs/\`).`
 
 /** Ocean Protocol's recommended compute nodes — default targets when the user has not specified one. */
 export const OCEAN_RECOMMENDED_NODES = [

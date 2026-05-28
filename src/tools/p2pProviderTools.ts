@@ -335,11 +335,19 @@ ${STORAGE_OBJECT_SHAPE_GUIDE}
     }
   )
 
-  const computeAssetList = z
-    .array(z.record(z.string(), z.unknown()))
-    .describe(
-      `ComputeAsset[]: each needs documentId, serviceId; optional fileObject, transferTxId, userdata. When supplying \`fileObject\`, see the StorageObject shape rules — URL files require both \`url\` and \`method\` ('get' | 'post') or the node rejects with "URL or method are missing". ${STORAGE_OBJECT_SHAPE_GUIDE}`
-    )
+  const computeAssetList = z.array(z.record(z.string(), z.unknown())).describe(
+    `ComputeAsset[]. Two valid dataset shapes — pick ONE per entry:
+
+1. **DID-based asset** — \`{ documentId, serviceId, transferTxId?, userdata? }\`. The node resolves \`documentId\` on-chain; required for published datasets. Triggers full DDO + order validation.
+2. **fileObject-only** (URL fileObject, nodePersistentStorage, IPFS, etc.) — \`{ fileObject: {...}, userdata? }\` with **NO \`documentId\` and NO \`serviceId\`**. The ocean-node free/paid compute handler skips DDO resolution when \`documentId\` is absent (\`if (!('documentId' in elem)) continue\`), so this is the correct shape for bring-your-own files.
+
+Example — persistent-storage dataset (use the \`bucketId\`/\`fileName\` from \`listPersistentStorageFiles\` directly; **no need to call \`getPersistentStorageFileObject\`**):
+\`\`\`json
+{ "fileObject": { "type": "nodePersistentStorage", "bucketId": "<id>", "fileName": "<name>" } }
+\`\`\`
+
+${STORAGE_OBJECT_SHAPE_GUIDE}`
+  )
 
   const computeAlgorithmSchema = z
     .record(z.string(), z.unknown())
@@ -870,13 +878,15 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'getPersistentStorageFileObject',
     {
       title: 'P2P get persistent storage file object',
-      description: `Returns metadata / object descriptor for a file (\`persistentStorageGetFileObject\`). Requires auth.
+      description: `Returns the node's \`PersistentStorageObject\` descriptor for a bucket file (\`persistentStorageGetFileObject\`). Requires auth.
+
+**This is the intended way to obtain the \`fileObject\` for a persistent-storage dataset in a compute job:** call this with the \`bucketId\` + \`fileName\` (from \`listPersistentStorageFiles\` or what \`createPersistentStorageBucket\` + upload returned), then pass the returned descriptor as the dataset's \`fileObject\` in \`computeStart\`/\`freeComputeStart\` — with no \`documentId\`/\`serviceId\` on that dataset entry.
 
 ${P2P_PERSISTENT_STORAGE_PREREQUISITE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
-**Returns:** \`PersistentStorageObject\` (node response).`,
+**Returns:** \`PersistentStorageObject\` = \`{ type: "nodePersistentStorage", bucketId, fileName, ... }\`.`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
