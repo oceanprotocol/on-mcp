@@ -193,12 +193,17 @@ function validateAlgoCode(
     language === 'python'
       ? code.includes('os.environ') && code.includes('DIDS')
       : code.includes('process.env') && code.includes('DIDS')
+  const usesDataInputs = code.includes('/data/inputs')
+  const usesPersistentStorage = code.includes('/data/persistentStorage')
 
-  if (!usesDids) {
+  // DIDS is only meaningful when consuming DID-asset inputs from /data/inputs.
+  // Algorithms with URL fileObjects, persistentStorage, or no inputs don't need it.
+  if (usesDataInputs && !usesDids) {
     issues.push({
-      level: 'error',
+      level: 'warning',
       check: 'DIDS environment variable',
-      message: 'Algorithm does not read the DIDS environment variable.',
+      message:
+        'Reads /data/inputs but does not read DIDS. Recommended for DID-asset inputs so you can walk per-DID subfolders.',
       fix:
         language === 'python'
           ? "Add: dids = json.loads(os.environ.get('DIDS', '[]'))"
@@ -206,12 +211,15 @@ function validateAlgoCode(
     })
   }
 
-  if (!code.includes('/data/inputs')) {
+  // Reading inputs is only required for algorithms that take inputs. Skip silently
+  // when the algorithm uses persistentStorage or has no input dependency at all.
+  if (!usesDataInputs && !usesPersistentStorage) {
     issues.push({
-      level: 'error',
-      check: 'Input path /data/inputs',
-      message: 'Algorithm does not read from the C2D input directory /data/inputs.',
-      fix: 'Input files are mounted at /data/inputs/<DID>/<filename>. Read them from there.'
+      level: 'warning',
+      check: 'Input path',
+      message:
+        'No input path detected. If the algorithm consumes datasets, read from /data/inputs/<DID>/<filename> (DID/URL inputs) or /data/persistentStorage/<bucketId>/<fileName> (nodePersistentStorage). Ignore this if the job has no inputs.',
+      fix: 'DID/URL → /data/inputs/<DID>/<filename>; nodePersistentStorage → /data/persistentStorage/<bucketId>/<fileName>.'
     })
   }
 
