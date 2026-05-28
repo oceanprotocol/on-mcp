@@ -338,7 +338,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
   const computeAlgorithmSchema = z
     .record(z.string(), z.unknown())
     .describe(
-      'ComputeAlgorithm. Recommended no-build path: meta.rawcode (inline source) + meta.container (image, tag, checksum, entrypoint e.g. "python $ALGO") against a prebuilt oceanprotocol/c2d_examples image. Or reference a published algorithm via documentId/serviceId/transferTxId. See resource ocean://docs/c2d-algorithm-authoring for image catalog, filesystem contract, and free-compute auth.'
+      'ComputeAlgorithm. Recommended no-build path: `meta.rawcode` (inline source) + `meta.container = { image: "oceanprotocol/c2d_examples", tag: <one of py-lite|py-panda|py-sql|py-general|js-general>, entrypoint: "python $ALGO" }`. **Tag is a CLOSED LIST — never `latest`, never `python-branin`, never any other tag or image; pick the closest curated tag from that list.** **Omit `checksum`** (a stale digest only causes pull failures). Or reference a published algorithm via documentId/serviceId/transferTxId. See `ocean://docs/c2d-algorithm-authoring` for the package list per tag and the filesystem contract.'
     )
 
   const computeResourcesSchema = z
