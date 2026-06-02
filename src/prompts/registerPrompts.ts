@@ -285,10 +285,10 @@ const DIAGNOSTICS: Record<
   payment_errors: {
     title: 'Payment or Escrow Errors',
     checks: [
-      'USDC balance on Base network is sufficient',
+      "Consumer's fee-token balance on Base is sufficient (USDC or COMPY)",
       'ESCROW_CLAIM_TIMEOUT (default 3600s) - increase if jobs are long-running',
       'feeToken in compute environment matches the payment token the user is sending',
-      'Base USDC address: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+      'Base fee tokens: USDC 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 · COMPY (Ocean grant token) 0x298f163244e0c8cc9316D6E97162e5792ac5d410'
     ],
     commands: [
       'npm run cli getUserFundsEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
@@ -501,7 +501,7 @@ export function registerPrompts(server: McpServer): void {
 # Ocean Node - Environment Configuration
 
 PRIVATE_KEY=${key}
-RPCS={"11155111": "https://sepolia.infura.io/v3/YOUR_INFURA_KEY", "8453": "https://mainnet.base.org"}
+RPCS={"8453": "https://mainnet.base.org"}
 HTTP_API_PORT=8000
 
 ALLOWED_ADMINS=["0xYOUR_ADMIN_WALLET"]
@@ -629,7 +629,7 @@ ESCROW_CLAIM_TIMEOUT=3600
 ### Step 1 - Set Environment Variables
 \`\`\`bash
 export PRIVATE_KEY=0xYOUR_PRIVATE_KEY
-export RPC=https://sepolia.infura.io/v3/YOUR_KEY
+export RPC=https://mainnet.base.org
 export NODE_URL=http://YOUR_NODE_URL:8000
 \`\`\`
 

@@ -98,7 +98,7 @@ npm run dev
 | `MCP_TRANSPORT` | `stdio` (default) or `sse` for Streamable HTTP. |
 | `MCP_HOST` | Bind address for HTTP mode (default `127.0.0.1`). |
 | `MCP_PORT` | Port for HTTP mode (default `3000`). |
-| `EVM_CHAIN_RPCS` | Optional JSON object mapping **chain id strings** to **arrays of RPC URLs** (primary first, fallbacks next). Used to build an ethers v6 `FallbackProvider` per chain for EVM tools. Example (shell-safe quoting) with public RPCs for **mainnet (1)**, **sepolia (11155111)**, **base (8453)**, **optimism (10)**: `EVM_CHAIN_RPCS='{"1":["https://cloudflare-eth.com","https://rpc.ankr.com/eth"],"11155111":["https://rpc.sepolia.org","https://rpc.ankr.com/eth_sepolia"],"8453":["https://mainnet.base.org","https://base.publicnode.com"],"10":["https://mainnet.optimism.io","https://optimism.publicnode.com"]}'`. Empty or unset means no EVM providers are registered. Invalid JSON causes startup to fail. |
+| `EVM_CHAIN_RPCS` | Optional JSON object mapping **chain id strings** to **arrays of RPC URLs** (primary first, fallbacks next). Used to build an ethers v6 `FallbackProvider` per chain for EVM tools. Example (shell-safe quoting) with public RPCs for **base (8453)**, **mainnet (1)**, **optimism (10)**: `EVM_CHAIN_RPCS='{"8453":["https://mainnet.base.org","https://base.publicnode.com"],"1":["https://cloudflare-eth.com","https://rpc.ankr.com/eth"],"10":["https://mainnet.optimism.io","https://optimism.publicnode.com"]}'`. Empty or unset means no EVM providers are registered. Invalid JSON causes startup to fail. |
 
 ---
 

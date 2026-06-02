@@ -160,9 +160,13 @@ async function createServerContext(): Promise<ServerContext> {
 
 async function main(): Promise<void> {
   if (!process.env.PRIVATE_KEY) {
+    // No key provided: generate a disposable libp2p identity for this session.
+    // This is ONLY the MCP server's network identity used to reach ocean-node
+    // peers — NOT the key that authorizes or pays for compute jobs. That
+    // consumer key is chosen per-job via the create_auth_token tool.
     process.env.PRIVATE_KEY = Wallet.createRandom().privateKey
     console.warn(
-      'PRIVATE_KEY was not provided; generated an ephemeral random key for this session.'
+      'No PRIVATE_KEY set: generated a disposable libp2p network identity for this MCP server session (lost on restart). This is the server peer identity, not a key you fund or that authorizes your compute jobs — choose that per-job via create_auth_token. Set PRIVATE_KEY for a stable server identity.'
     )
   }
 

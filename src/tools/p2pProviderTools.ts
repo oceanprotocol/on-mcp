@@ -1,13 +1,18 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod/v4'
 import { DDO, ProviderInstance, PROTOCOL_COMMANDS } from '@oceanprotocol/lib'
+import { Wallet } from 'ethers'
 import { NodeClient } from '../clients/nodeClient.js'
 import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
 import { buildC2dProviderSearchContent } from '../utils/c2dProviderSearchString.js'
 import { toJsonFriendly } from './evmToolUtils.js'
 import {
-  completeSignatureSchema,
+  EPHEMERAL_CONSUMER_KEY_DISCLAIMER,
   findProviderInputSchema,
+  P2P_COMPUTE_PAYMENT_GUIDE,
+  P2P_COMPUTE_POLLING_GUIDE,
+  P2P_RECOMMENDED_NODES_GUIDE,
+  STORAGE_OBJECT_SHAPE_GUIDE,
   nodeTargetSchema,
   parseNodeTarget,
   P2P_ADMIN_CONFIG_WARNING,
@@ -50,8 +55,9 @@ export function registerP2pProviderTools({ server, nodeClient }: Params): void {
     'node_status',
     {
       title: 'Get node status',
-      description:
-        'Gets ocean-node status via the P2P **status** command. Use **nodeId** and/or **multiaddress** to target the peer. The payload may include **persistentStorage** (object, optionally with **accessLists**) only when the node has persistent storage configured—agents must use this to decide if persistent storage bucket/file tools are allowed for that node.',
+      description: `Gets ocean-node status via the P2P **status** command. Use **nodeId** and/or **multiaddress** to target the peer. The payload may include **persistentStorage** (object, optionally with **accessLists**) only when the node has persistent storage configured—agents must use this to decide if persistent storage bucket/file tools are allowed for that node.
+
+${P2P_RECOMMENDED_NODES_GUIDE}`,
       inputSchema: { ...nodeTargetSchema }
     },
     async ({ nodeId, multiaddress, timeout }) => {
@@ -153,8 +159,9 @@ For **multiple** dimensions (e.g. 2 CPUs **and** 8 GB RAM), build one **content*
     'getComputeEnvironments',
     {
       title: 'Get compute environments for a specific node',
-      description:
-        'Calls P2pProvider.getComputeEnvironments — lists compute environments exposed by the target node (no auth).',
+      description: `Calls P2pProvider.getComputeEnvironments — lists compute environments exposed by the target node (no auth).
+
+${P2P_RECOMMENDED_NODES_GUIDE}`,
       inputSchema: { ...nodeTargetSchema }
     },
     async ({ nodeId, multiaddress, timeout }) => {
@@ -294,7 +301,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'getFileInfo',
     {
       title: 'P2P get file info',
-      description: `Resolves file metadata via \`fileInfo\` (\`P2pProvider.getFileInfo\`). No consumer signature. \`file\` must be a \`StorageObject\` (url, ipfs, arweave, s3, ftp, or nodePersistentStorage).
+      description: `Resolves file metadata via \`fileInfo\` (\`P2pProvider.getFileInfo\`). No consumer signature.
+
+${STORAGE_OBJECT_SHAPE_GUIDE}
 
 **Returns:** Array of \`FileInfo\` entries (length 1 for a single object).`,
       inputSchema: {
@@ -326,16 +335,24 @@ ${P2P_AUTH_SIGNING_GUIDE}
     }
   )
 
-  const computeAssetList = z
-    .array(z.record(z.string(), z.unknown()))
-    .describe(
-      'ComputeAsset[]: each needs documentId, serviceId; optional fileObject, transferTxId, userdata.'
-    )
+  const computeAssetList = z.array(z.record(z.string(), z.unknown())).describe(
+    `ComputeAsset[]. Two valid dataset shapes — pick ONE per entry:
+
+1. **DID-based asset** — \`{ documentId, serviceId, transferTxId?, userdata? }\`. The node resolves \`documentId\` on-chain; required for published datasets. Triggers full DDO + order validation.
+2. **fileObject-only** (URL fileObject, nodePersistentStorage, IPFS, etc.) — \`{ fileObject: {...}, userdata? }\` with **NO \`documentId\` and NO \`serviceId\`**. The ocean-node free/paid compute handler skips DDO resolution when \`documentId\` is absent (\`if (!('documentId' in elem)) continue\`), so this is the correct shape for bring-your-own files.
+
+Example — persistent-storage dataset (use the \`bucketId\`/\`fileName\` from \`listPersistentStorageFiles\` directly; **no need to call \`getPersistentStorageFileObject\`**):
+\`\`\`json
+{ "fileObject": { "type": "nodePersistentStorage", "bucketId": "<id>", "fileName": "<name>" } }
+\`\`\`
+
+${STORAGE_OBJECT_SHAPE_GUIDE}`
+  )
 
   const computeAlgorithmSchema = z
     .record(z.string(), z.unknown())
     .describe(
-      'ComputeAlgorithm: meta.container (image, tag, entrypoint, checksum), optional documentId, serviceId, transferTxId, envs, etc.'
+      'ComputeAlgorithm. Recommended no-build path: `meta.rawcode` (inline source) + `meta.container = { image: "oceanprotocol/c2d_examples", tag: <one of py-lite|py-panda|py-sql|py-general|js-general>, entrypoint: "python $ALGO" }`. **Tag is a CLOSED LIST — never `latest`, never `python-branin`, never any other tag or image; pick the closest curated tag from that list.** **Omit `checksum`** (a stale digest only causes pull failures). Or reference a published algorithm via documentId/serviceId/transferTxId. See `ocean://docs/c2d-algorithm-authoring` for the package list per tag and the filesystem contract.'
     )
 
   const computeResourcesSchema = z
@@ -346,9 +363,11 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'initializeCompute',
     {
       title: 'P2P initialize compute',
-      description: `Price / validation step for compute (\`initializeCompute\`). **Does not require** authToken or signature in ocean.js; the node validates parameters and returns payment / fee hints (\`ProviderComputeInitializeResults\`).
+      description: `Pricing/validation for compute (\`initializeCompute\`). No auth required. **Always call before \`computeStart\` to learn the real cost.**
 
-**Returns:** Object with optional \`algorithm\`, \`datasets\`, \`payment\` (escrow, token, amounts) fields.`,
+${P2P_COMPUTE_PAYMENT_GUIDE}
+
+**Returns:** \`{ algorithm?, datasets?, payment: { escrowAddress, payee, chainId, token, amount, minLockSeconds } }\`. \`amount\` is raw token units; \`minLockSeconds\` is the escrow-lock requirement (not job duration).`,
       inputSchema: {
         ...nodeTargetSchema,
         assets: computeAssetList,
@@ -360,7 +379,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
         validUntil: z
           .number()
           .describe(
-            'Max job duration / validity window (seconds) as expected by the node.'
+            'Container run time in seconds (= computeStart `maxJobDuration`). NOT the escrow lock — see Duration vs escrow lock in the description.'
           ),
         consumerAddress: z.string(),
         resources: computeResourcesSchema,
@@ -418,18 +437,32 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P start paid compute',
       description: `Starts a paid compute job (\`startCompute\`). Requires auth.
 
+**Paid jobs need on-chain escrow deposit + authorization — do NOT mint a token here.** If the user has no \`authToken\`, send them to the dashboard, then come back:
+1. Open **https://dashboard.oncompute.ai/nodes/<node-id>** — fill in this job's target node peer ID.
+2. **Environments** box → pick the compute environment.
+3. Complete **deposit** and **authorization** (funds the escrow).
+4. Copy the issued **auth token** and paste it back.
+
+Pass that token as \`authToken\`. (If they already have a valid token for a funded, authorized consumer, just use it.)
+
+${P2P_COMPUTE_PAYMENT_GUIDE}
+
+${P2P_COMPUTE_POLLING_GUIDE}
+
 ${P2P_AUTH_SIGNING_GUIDE}
 
-**protocolCommand:** \`startCompute\`.
-
-**Returns:** \`ComputeJob\` or array of jobs (node-dependent).`,
+**protocolCommand:** \`startCompute\`. **Returns:** \`ComputeJob\` or array.`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
         computeEnv: z.string(),
         datasets: computeAssetList,
         algorithm: computeAlgorithmSchema,
-        maxJobDuration: z.number(),
+        maxJobDuration: z
+          .number()
+          .describe(
+            'Container run time in seconds (= initializeCompute `validUntil`). NOT the escrow lock — see Duration vs escrow lock in the description.'
+          ),
         token: z.string().describe('Fee token contract address.'),
         resources: computeResourcesSchema,
         chainId: z.number(),
@@ -479,6 +512,10 @@ ${P2P_AUTH_SIGNING_GUIDE}
     {
       title: 'P2P start free compute',
       description: `Starts a free compute job (\`freeStartCompute\`). Requires auth.
+
+**Need auth?** Pass an existing JWT as \`authToken\`, or call \`create_auth_token\` first (ephemeral or own key) and pass the returned JWT. Ephemeral works on open free envs; check \`env.free.access\` from getComputeEnvironments — if \`addresses\` or \`accessLists\` is non-empty, the consumer must be allowed.
+
+${P2P_COMPUTE_POLLING_GUIDE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
@@ -583,11 +620,13 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'computeStatus',
     {
       title: 'P2P compute status',
-      description: `Queries job status (\`getComputeStatus\`). Requires auth (JWT or completeSignature so the library can supply \`consumerAddress\` / headers).
+      description: `Queries job status (\`getComputeStatus\`). Requires auth.
+
+${P2P_COMPUTE_POLLING_GUIDE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
-**Returns:** \`ComputeJob\` or list of jobs for the consumer.`,
+**Returns:** \`ComputeJob\` or list of jobs.`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -839,13 +878,15 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'getPersistentStorageFileObject',
     {
       title: 'P2P get persistent storage file object',
-      description: `Returns metadata / object descriptor for a file (\`persistentStorageGetFileObject\`). Requires auth.
+      description: `Returns the node's \`PersistentStorageObject\` descriptor for a bucket file (\`persistentStorageGetFileObject\`). Requires auth.
+
+**This is the intended way to obtain the \`fileObject\` for a persistent-storage dataset in a compute job:** call this with the \`bucketId\` + \`fileName\` (from \`listPersistentStorageFiles\` or what \`createPersistentStorageBucket\` + upload returned), then pass the returned descriptor as the dataset's \`fileObject\` in \`computeStart\`/\`freeComputeStart\` — with no \`documentId\`/\`serviceId\` on that dataset entry.
 
 ${P2P_PERSISTENT_STORAGE_PREREQUISITE}
 
 ${P2P_AUTH_SIGNING_GUIDE}
 
-**Returns:** \`PersistentStorageObject\` (node response).`,
+**Returns:** \`PersistentStorageObject\` = \`{ type: "nodePersistentStorage", bucketId, fileName, ... }\`.`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1079,29 +1120,79 @@ ${P2P_AUTH_SIGNING_GUIDE}
     'create_auth_token',
     {
       title: 'P2P create auth token',
-      description: `Mints a JWT via \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\` (\`generateSignedAuthToken\`). **No existing authToken** — you sign with your wallet.
+      description: `Mints a node JWT via \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\`. The token's identity is the **consumer** for later compute calls.
 
-Use **completeSignature** only: **nonce = String((getNonce) + 1)** and **protocolCommand** \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\` per the auth guide.
+**Mint once per session, reuse the JWT.** Buckets/jobs/results are owned by the consumer address; re-minting (especially \`ephemeral\`) creates a new consumer that can't see prior resources. If the user already has a JWT, skip this tool and pass it as \`authToken\` directly.
 
-**Returns:** JWT string to pass as **authToken** on later calls.`,
+**Ask which key to use**, then pass exactly one:
+- **ephemeral: true** — server-generated throwaway key; the returned \`privateKey\` is shown so the user can keep or fund it (funded ephemeral = paid jobs).
+- **privateKey** — user's existing key (typically already funded). **Pasted keys transit the chat/LLM — testnet only.** Never echoed back.
+
+**Returns:** \`token\` (pass as \`authToken\` later), \`consumerAddress\`. For \`ephemeral\`, also \`privateKey\` + disclaimer.`,
       inputSchema: {
         ...nodeTargetSchema,
-        completeSignature: completeSignatureSchema.describe(
-          'Wallet-signed CREATE_AUTH_TOKEN (consumerAddress, nonce, signature).'
-        )
+        ephemeral: z
+          .boolean()
+          .optional()
+          .describe('Generate a throwaway consumer key; returns the privateKey.'),
+        privateKey: z
+          .string()
+          .optional()
+          .describe(
+            "User's own 0x-hex key. Testnet only — pasted keys transit the chat/LLM. Never echoed back."
+          )
       }
     },
-    async ({ nodeId, multiaddress, timeout, completeSignature }) => {
+    async ({ nodeId, multiaddress, timeout, ephemeral, privateKey }) => {
       try {
+        const sources = [ephemeral === true, !!privateKey].filter(Boolean).length
+        if (sources !== 1) {
+          throw new Error('Provide exactly one of: ephemeral or privateKey')
+        }
         const node = parseNodeTarget(nodeId, multiaddress)
-        const result = await nodeClient.createAuthToken(
+
+        if (privateKey) {
+          let wallet: Wallet
+          try {
+            wallet = new Wallet(privateKey)
+          } catch {
+            // Never surface the raw ethers error — it embeds the supplied key value.
+            throw new Error(
+              'Invalid private key format (must be a 0x-prefixed 32-byte hex string)'
+            )
+          }
+          let token: string
+          try {
+            token = await nodeClient.createAuthTokenWithSigner(
+              node,
+              wallet,
+              timeoutMs(timeout)
+            )
+          } catch {
+            // Never surface the underlying error on the user-key path — it could
+            // echo the supplied key. Return a safe, generic message instead.
+            throw new Error(
+              'Failed to mint auth token from the provided private key (node unreachable or rejected the request)'
+            )
+          }
+          return commandResultPayload('create_auth_token', {
+            token,
+            consumerAddress: wallet.address
+          })
+        }
+
+        const ephemeralWallet = Wallet.createRandom()
+        const token = await nodeClient.createAuthTokenWithSigner(
           node,
-          completeSignature.consumerAddress,
-          completeSignature.signature,
-          completeSignature.nonce,
+          ephemeralWallet,
           timeoutMs(timeout)
         )
-        return commandResultPayload('create_auth_token', { token: result })
+        return commandResultPayload('create_auth_token', {
+          token,
+          consumerAddress: ephemeralWallet.address,
+          privateKey: ephemeralWallet.privateKey,
+          disclaimer: EPHEMERAL_CONSUMER_KEY_DISCLAIMER
+        })
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }

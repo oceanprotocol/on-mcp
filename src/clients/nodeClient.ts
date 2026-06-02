@@ -12,6 +12,7 @@ import {
   type StorageObject
 } from '@oceanprotocol/lib'
 import type { Multiaddr } from '@multiformats/multiaddr'
+import type { Signer } from 'ethers'
 
 type NodeP2P = {
   nodeId: string | null
@@ -662,6 +663,25 @@ export class NodeClient {
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`
       throw new Error(`P2P createAuthToken failed: ${message}`)
+    }
+  }
+
+  /** Mint a JWT by signing with a Signer (ephemeral or user key); ocean.js fetches the nonce and signs internally. */
+  async createAuthTokenWithSigner(
+    node: NodeP2P,
+    signer: Signer,
+    timeout: number
+  ): Promise<string> {
+    try {
+      const token = await getP2p().generateAuthToken(
+        signer,
+        node,
+        AbortSignal.timeout(timeout)
+      )
+      return typeof token === 'string' ? token : `${token}`
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P createAuthToken (signer) failed: ${message}`)
     }
   }
 

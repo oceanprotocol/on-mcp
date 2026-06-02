@@ -1,3 +1,4 @@
+import { Contract, formatUnits, getAddress } from 'ethers'
 import { z } from 'zod/v4'
 
 import { stringifyError, textContent } from '../utils/format.js'
@@ -8,6 +9,12 @@ import {
   getProviderOrThrow,
   type EvmToolParams
 } from './evmToolUtils.js'
+
+const ERC20_INFO_ABI = [
+  'function decimals() view returns (uint8)',
+  'function symbol() view returns (string)',
+  'function name() view returns (string)'
+]
 
 export function registerEvmContractTools({ server, evmRegistry }: EvmToolParams): void {
   server.registerTool(
@@ -137,6 +144,52 @@ export function registerEvmContractTools({ server, evmRegistry }: EvmToolParams)
         const provider = getProviderOrThrow(evmRegistry, chainId)
         const result = await provider.broadcastTransaction(txRaw)
         return commandResultPayload('broadcast_transaction', result)
+      } catch (error) {
+        return { ...textContent(stringifyError(error)), isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'get_erc20_token_info',
+    {
+      title: 'Get ERC-20 token info (decimals, symbol, name)',
+      description:
+        'Reads `decimals`, `symbol`, and `name` from an ERC-20 token contract (read-only). Use this to denominate raw amounts (e.g. `payment.amount` from initializeCompute, `escrow_get_user_funds`) into human-readable units before showing them to the user. Optionally pass `rawAmount` to get back the human-readable string as well.',
+      inputSchema: {
+        chainId: z
+          .number()
+          .int()
+          .positive()
+          .describe('EVM chain id configured in EVM_CHAIN_RPCS.'),
+        tokenAddress: z.string().describe('ERC-20 token contract address (0x...).'),
+        rawAmount: z
+          .string()
+          .optional()
+          .describe(
+            'Optional raw amount (decimal string) to format using the token decimals; returns `formattedAmount`.'
+          )
+      }
+    },
+    async ({ chainId, tokenAddress, rawAmount }) => {
+      try {
+        const provider = getProviderOrThrow(evmRegistry, chainId)
+        const contract = new Contract(getAddress(tokenAddress), ERC20_INFO_ABI, provider)
+        const [decimalsRaw, symbol, name] = await Promise.all([
+          contract.decimals(),
+          contract.symbol(),
+          contract.name()
+        ])
+        const decimals = Number(decimalsRaw)
+        return commandResultPayload('get_erc20_token_info', {
+          address: getAddress(tokenAddress),
+          decimals,
+          symbol,
+          name,
+          ...(rawAmount !== undefined
+            ? { rawAmount, formattedAmount: formatUnits(BigInt(rawAmount), decimals) }
+            : {})
+        })
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }
