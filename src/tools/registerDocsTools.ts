@@ -33,7 +33,7 @@ type Params = {
 
 const BASE_CHAIN_ID = '8453'
 const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
-const BASE_COMPY = '0x298f163244e0c8cc9316d6e97162e5792ac5d410'
+const BASE_COMPY = '0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2'
 const BASE_FEE_TOKENS: ReadonlyArray<{ symbol: string; address: string }> = [
   { symbol: 'USDC', address: BASE_USDC },
   { symbol: 'COMPY', address: BASE_COMPY }
@@ -68,7 +68,7 @@ const WORKFLOWS: Record<string, { title: string; persona: string; steps: string[
       'Ensure node version is >= 2.0.0. Check at: http://localhost:8000/api/services/info',
       'Set P2P_ANNOUNCE_ADDRESSES to your server\'s public IP:\n  P2P_ANNOUNCE_ADDRESSES=["/ip4/YOUR_PUBLIC_IP/tcp/8000"]',
       'Configure the Base escrow address (chain ID 8453) - see Ocean Protocol deployment addresses.',
-      'Set DOCKER_COMPUTE_ENVIRONMENTS with at least one environment that:\n  - Includes Base (8453) fee chain\n  - Accepts Base USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) and/or COMPY (0x298f163244e0c8cc9316D6E97162e5792ac5d410, the Ocean grant token) as feeToken\n  - Has GPU resource listed\n  - Total resource price: 0 < total <= 1 USDC-equivalent/min (for benchmark jobs)\n  - Adds the Ocean monitoring consumer wallet to access.addresses',
+      'Set DOCKER_COMPUTE_ENVIRONMENTS with at least one environment that:\n  - Includes Base (8453) fee chain\n  - Accepts Base USDC (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) and/or COMPY (0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2, the Ocean grant token) as feeToken\n  - Has GPU resource listed\n  - Total resource price: 0 < total <= 1 USDC-equivalent/min (for benchmark jobs)\n  - Adds the Ocean monitoring consumer wallet to access.addresses',
       'Restart: docker-compose down && docker-compose up -d',
       "Verify eligibility on the Nodes Dashboard under your node's 'Eligibility' tab."
     ]
@@ -126,7 +126,7 @@ const WORKFLOWS: Record<string, { title: string; persona: string; steps: string[
     title: 'Run a Compute Job via Ocean CLI',
     persona: 'Demand Side',
     steps: [
-      "Set required environment variables:\n  export PRIVATE_KEY=0x...\n  export RPC=https://mainnet.base.org\n  export NODE_URL=http://your-node:8000\n  # Pick the env's fee token. Common Base options:\n  #   USDC:  0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\n  #   COMPY: 0x298f163244e0c8cc9316D6E97162e5792ac5d410 (Ocean grant token)\n  export PAYMENT_TOKEN=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "Set required environment variables:\n  export PRIVATE_KEY=0x...\n  export RPC=https://mainnet.base.org\n  export NODE_URL=http://your-node:8000\n  # Pick the env's fee token. Common Base options:\n  #   USDC:  0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\n  #   COMPY: 0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2 (Ocean grant token)\n  export PAYMENT_TOKEN=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
       'Find available compute environments:\n  npm run cli getComputeEnvironments\n  Note the environment ID (ENV_ID) you want to use.',
       'Get your dataset and algorithm DIDs (from publishing them, or browse the network).',
       'Start the job:\n  npm run cli startCompute \\\n    $DATASET_DID \\\n    $ALGO_DID \\\n    $ENV_ID \\\n    60 \\\n    $PAYMENT_TOKEN \\\n    \'[{"id":"cpu","amount":1},{"id":"disk","amount":1},{"id":"ram","amount":1}]\'\n  Add --accept true to skip the payment confirmation prompt.',
@@ -167,7 +167,7 @@ const WORKFLOWS: Record<string, { title: string; persona: string; steps: string[
     title: 'Fund Your Wallet on Base (USDC or COMPY)',
     persona: 'Demand Side',
     steps: [
-      "Ocean runs on the Base network (Ethereum L2). Common fee tokens: **USDC** (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) and **COMPY** (0x298f163244e0c8cc9316D6E97162e5792ac5d410 — Ocean grant token). Check the target env's `fee_tokens` to know which it accepts.",
+      "Ocean runs on the Base network (Ethereum L2). Common fee tokens: **USDC** (0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913) and **COMPY** (0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2 — Ocean grant token). Check the target env's `fee_tokens` to know which it accepts.",
       'Options to get USDC on Base:\n  A) Coinbase Exchange: send USDC directly to your Base address (no bridge fee).\n  B) Base Bridge (bridge.base.org): deposit ETH or USDC from Ethereum Mainnet.\n  C) Superbridge: cross-chain bridge from other networks.\n  D) Fiat On-Ramp (coming soon in Dashboard): buy USDC directly with credit card via MoonPay.\n  Options to get COMPY: receive a grant allocation from Ocean Network (grant token, not openly tradable).',
       'Check your balance in the Nodes Dashboard wallet section.',
       'Deposit to escrow before running jobs: the dashboard will prompt you if escrow is insufficient.',

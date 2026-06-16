@@ -288,7 +288,7 @@ const DIAGNOSTICS: Record<
       "Consumer's fee-token balance on Base is sufficient (USDC or COMPY)",
       'ESCROW_CLAIM_TIMEOUT (default 3600s) - increase if jobs are long-running',
       'feeToken in compute environment matches the payment token the user is sending',
-      'Base fee tokens: USDC 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 · COMPY (Ocean grant token) 0x298f163244e0c8cc9316D6E97162e5792ac5d410'
+      'Base fee tokens: USDC 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 · COMPY (Ocean grant token) 0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2'
     ],
     commands: [
       'npm run cli getUserFundsEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
