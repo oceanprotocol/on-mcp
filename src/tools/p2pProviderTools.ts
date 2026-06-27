@@ -86,6 +86,7 @@ async function escrowPreflightGate(
         chainId: args.chainId,
         policyServer: args.policyServer,
         queueMaxWaitTime: args.queueMaxWaitTime,
+        dockerRegistryAuthData: args.dockerRegistryAuth as never,
         output: args.output as never
       }
     )

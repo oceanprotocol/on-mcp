@@ -208,6 +208,17 @@ export function evaluateEscrowReadiness(params: {
         `authorization maxLockCounts ${parsed!.maxLockCounts} < recommended ${requiredMaxLockCounts}`
       )
     }
+    // Per-job blockers (can be hit even when the recommended targets above pass).
+    if (!headroomCanStart) {
+      shortfalls.push(
+        `authorization headroom ${headroom} (maxLockedAmount ${parsed!.maxLockedAmount} − currentLockedAmount ${parsed!.currentLockedAmount}) < ${amount} needed to start this job`
+      )
+    }
+    if (!countCanStart) {
+      shortfalls.push(
+        `authorization has no free lock slot: currentLocks ${parsed!.currentLocks} + 1 > maxLockCounts ${parsed!.maxLockCounts}`
+      )
+    }
   }
 
   let reason: EscrowPreflightResult['reason']
@@ -343,10 +354,16 @@ const paymentSchema = z
     payee: z.string().describe('Node payee address (initializeCompute payment.payee).'),
     token: z.string().describe('Payment/fee token address.'),
     amount: z
-      .union([z.string(), z.number()])
+      .union([
+        z.string().regex(/^[1-9]\d*$/, 'positive integer string (raw base units)'),
+        z.number().int().positive()
+      ])
       .describe('Per-job max lock amount in raw token base units (payment.amount).'),
     minLockSeconds: z
-      .union([z.string(), z.number()])
+      .union([
+        z.string().regex(/^[1-9]\d*$/, 'positive integer string (seconds)'),
+        z.number().int().positive()
+      ])
       .describe('Escrow-lock requirement in seconds (payment.minLockSeconds).')
   })
   .describe('The `payment` object returned by initializeCompute.')
@@ -388,6 +405,8 @@ export function registerEscrowPreflightTool({ server, evmRegistry }: Params): vo
         payment: paymentSchema,
         maxJobDuration: z
           .number()
+          .int()
+          .positive()
           .describe(
             "Chosen compute environment's maxJobDuration (from getComputeEnvironments)."
           ),

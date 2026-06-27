@@ -80,6 +80,19 @@ describe('evaluateEscrowReadiness', () => {
     })
     expect(r.canStartThisJob).to.equal(false)
     expect(r.reason).to.equal('authorization_limits')
+    // The per-job blocker must be reported even though the recommended target (3000) is met.
+    expect(r.shortfalls.join(' ')).to.match(/headroom/)
+  })
+
+  it('authorization_limits when no free lock slot, reported in shortfalls', () => {
+    const r = evaluateEscrowReadiness({
+      ...BASE,
+      available: 3000n,
+      authorization: { ...fullAuth, maxLockCounts: 5n, currentLocks: 5n }
+    })
+    expect(r.canStartThisJob).to.equal(false)
+    expect(r.reason).to.equal('authorization_limits')
+    expect(r.shortfalls.join(' ')).to.match(/no free lock slot/)
   })
 
   it('can start one job but not ready when under-provisioned for parallelJobs', () => {
