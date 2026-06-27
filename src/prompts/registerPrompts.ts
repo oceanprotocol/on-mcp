@@ -285,17 +285,19 @@ const DIAGNOSTICS: Record<
   payment_errors: {
     title: 'Payment or Escrow Errors',
     checks: [
+      'Run escrow_preflight (payment from initializeCompute + env maxJobDuration) to see exactly what is short — funds or authorization',
       "Consumer's fee-token balance on Base is sufficient (USDC or COMPY)",
       'ESCROW_CLAIM_TIMEOUT (default 3600s) - increase if jobs are long-running',
       'feeToken in compute environment matches the payment token the user is sending',
       'Base fee tokens: USDC 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 · COMPY (Ocean grant token) 0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2'
     ],
     commands: [
+      '# Manage escrow (deposit / authorize): https://dashboard.oncompute.ai/profile/escrow',
       'npm run cli getUserFundsEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
       'npm run cli depositEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 --amount 10'
     ],
     notes:
-      'For paid jobs, the consumer must authorize the orchestrator to spend tokens. This is prompted automatically in the extension and dashboard.'
+      'For paid jobs, the consumer must deposit to escrow and authorize the node (payee) to lock tokens. escrow_preflight auto-fixes this when given a privateKey; otherwise send the user to https://dashboard.oncompute.ai/profile/escrow. computeStart also gates on this preflight.'
   },
   suspended_or_banned: {
     title: 'Node Suspended or Banned from Incentives',

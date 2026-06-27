@@ -18,7 +18,7 @@ export function registerTools({
   evmRegistry,
   docsIndex
 }: RegisterToolsParams): void {
-  registerP2pProviderTools({ server, nodeClient })
+  registerP2pProviderTools({ server, nodeClient, evmRegistry })
   registerEvmContractTools({ server, evmRegistry })
   registerAssetTools({ server, evmRegistry })
   registerIncentivesTools({ server, incentivesClient })
