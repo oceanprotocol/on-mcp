@@ -3,9 +3,16 @@ import { z } from 'zod/v4'
 import { DDO, ProviderInstance, PROTOCOL_COMMANDS } from '@oceanprotocol/lib'
 import { Wallet } from 'ethers'
 import { NodeClient } from '../clients/nodeClient.js'
+import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
 import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
 import { buildC2dProviderSearchContent } from '../utils/c2dProviderSearchString.js'
+import { decodeAuthTokenAddress } from '../utils/auth.js'
 import { toJsonFriendly } from './evmToolUtils.js'
+import {
+  DEFAULT_PARALLEL_JOBS,
+  runEscrowPreflight,
+  type PaymentInfo
+} from './escrowPreflight.js'
 import {
   EPHEMERAL_CONSUMER_KEY_DISCLAIMER,
   findProviderInputSchema,
@@ -23,7 +30,12 @@ import {
   timeoutMs
 } from './p2pSchemas.js'
 
-type Params = { server: McpServer; nodeClient: NodeClient }
+type Params = {
+  server: McpServer
+  nodeClient: NodeClient
+  /** Optional: when provided, computeStart runs an on-chain escrow preflight gate before starting. */
+  evmRegistry?: EvmProviderRegistry
+}
 
 function commandResultPayload(command: string, result: unknown) {
   return textContent(
@@ -34,7 +46,87 @@ function commandResultPayload(command: string, result: unknown) {
   )
 }
 
-export function registerP2pProviderTools({ server, nodeClient }: Params): void {
+/**
+ * On-chain escrow gate for paid computeStart. Resolves the payer from the auth token / signature
+ * (no private key here), derives the job's `payment` via initializeCompute, and runs the shared
+ * preflight. Returns an `isError` payload to block when the job cannot be paid for; returns
+ * `undefined` to proceed. Best-effort: if the gate cannot run (no evmRegistry, RPC/init failure,
+ * unresolved payer) it lets the node enforce payment instead of false-blocking.
+ */
+async function escrowPreflightGate(
+  nodeClient: NodeClient,
+  evmRegistry: EvmProviderRegistry | undefined,
+  args: any
+): Promise<{ content: { type: 'text'; text: string }[]; isError: true } | undefined> {
+  if (!evmRegistry || args.skipEscrowPreflight === true) return undefined
+
+  let payer: string | undefined
+  try {
+    if (args.authToken) payer = decodeAuthTokenAddress(args.authToken)
+    else if (args.completeSignature?.consumerAddress)
+      payer = args.completeSignature.consumerAddress
+  } catch {
+    payer = undefined
+  }
+  if (!payer) return undefined
+
+  try {
+    const node = parseNodeTarget(args.nodeId, args.multiaddress)
+    const init = await nodeClient.initializeCompute<{ payment?: PaymentInfo }>(
+      node,
+      timeoutMs(args.timeout),
+      {
+        assets: args.datasets as never,
+        algorithm: args.algorithm as never,
+        computeEnv: args.computeEnv,
+        token: args.token,
+        validUntil: args.maxJobDuration,
+        consumerAddress: payer,
+        resources: args.resources as never,
+        chainId: args.chainId,
+        policyServer: args.policyServer,
+        queueMaxWaitTime: args.queueMaxWaitTime,
+        dockerRegistryAuthData: args.dockerRegistryAuth as never,
+        output: args.output as never
+      }
+    )
+    const payment = init?.payment
+    if (!payment || !payment.escrowAddress) return undefined
+
+    const preflight = await runEscrowPreflight({
+      evmRegistry,
+      payer,
+      payment,
+      maxJobDuration: args.maxJobDuration,
+      parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS
+    })
+    if (!preflight.canStartThisJob) {
+      return {
+        ...textContent(
+          toPrettyJson({
+            command: 'computeStart',
+            error: 'escrow_preflight_failed',
+            message:
+              'Escrow is not funded/authorized for this job. Resolve it (dashboard Manage escrow, ' +
+              'or escrow_preflight with a privateKey for auto-fix) then retry. ' +
+              'Pass skipEscrowPreflight=true to bypass this gate.',
+            preflight: toJsonFriendly(preflight)
+          })
+        ),
+        isError: true as const
+      }
+    }
+  } catch {
+    return undefined
+  }
+  return undefined
+}
+
+export function registerP2pProviderTools({
+  server,
+  nodeClient,
+  evmRegistry
+}: Params): void {
   server.registerTool(
     'mcp_server_peers',
     {
@@ -437,13 +529,9 @@ ${P2P_COMPUTE_PAYMENT_GUIDE}
       title: 'P2P start paid compute',
       description: `Starts a paid compute job (\`startCompute\`). Requires auth.
 
-**Paid jobs need on-chain escrow deposit + authorization — do NOT mint a token here.** If the user has no \`authToken\`, send them to the dashboard, then come back:
-1. Open **https://dashboard.oncompute.ai/nodes/<node-id>** — fill in this job's target node peer ID.
-2. **Environments** box → pick the compute environment.
-3. Complete **deposit** and **authorization** (funds the escrow).
-4. Copy the issued **auth token** and paste it back.
-
-Pass that token as \`authToken\`. (If they already have a valid token for a funded, authorized consumer, just use it.)
+**Paid jobs need on-chain escrow deposit + authorization.** This tool runs an escrow **preflight gate**: it resolves your consumer address (from \`authToken\` / \`completeSignature\`), checks funds + the node authorization, and **refuses to start** if escrow can't back the job (bypass with \`skipEscrowPreflight: true\`). To provision ahead of time, call **escrow_preflight** (with a \`privateKey\` it deposits + authorizes for you). Two distinct redirects when something is missing:
+- **No auth token?** Mint one at **https://dashboard.oncompute.ai/nodes/tokens** (needs the target node peerID), then pass it as \`authToken\`.
+- **Escrow not funded/authorized?** Open **https://dashboard.oncompute.ai/profile/escrow** (Manage escrow) and deposit / authorize for the node's payee address, then retry.
 
 ${P2P_COMPUTE_PAYMENT_GUIDE}
 
@@ -473,13 +561,31 @@ ${P2P_AUTH_SIGNING_GUIDE}
         output: z.record(z.string(), z.unknown()).optional(),
         policyServer: z.record(z.string(), z.unknown()).optional(),
         queueMaxWaitTime: z.number().optional(),
-        dockerRegistryAuth: z.record(z.string(), z.unknown()).optional()
+        dockerRegistryAuth: z.record(z.string(), z.unknown()).optional(),
+        parallelJobs: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            `Escrow preflight: concurrent jobs to provision authorization for (default ${DEFAULT_PARALLEL_JOBS}).`
+          ),
+        skipEscrowPreflight: z
+          .boolean()
+          .optional()
+          .describe(
+            'Skip the on-chain escrow funds/authorization gate (use when already provisioned). Default false.'
+          )
       }
     },
     async (args) => {
       try {
         const auth = resolveAuth(args.authToken, args.completeSignature)
         const node = parseNodeTarget(args.nodeId, args.multiaddress)
+
+        const gate = await escrowPreflightGate(nodeClient, evmRegistry, args)
+        if (gate) return gate
+
         const result = await nodeClient.computeStart(
           node,
           auth,
@@ -1122,7 +1228,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P create auth token',
       description: `Mints a node JWT via \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\`. The token's identity is the **consumer** for later compute calls.
 
-**Mint once per session, reuse the JWT.** Buckets/jobs/results are owned by the consumer address; re-minting (especially \`ephemeral\`) creates a new consumer that can't see prior resources. If the user already has a JWT, skip this tool and pass it as \`authToken\` directly.
+**Mint once per session, reuse the JWT.** Buckets/jobs/results are owned by the consumer address; re-minting (especially \`ephemeral\`) creates a new consumer that can't see prior resources. If the user already has a JWT, skip this tool and pass it as \`authToken\` directly. **Tokens are per-node** — bound to the target peerID. A user who won't share a private key can instead mint a token in the dashboard at **https://dashboard.oncompute.ai/nodes/tokens** (needs the node peerID) and paste it back as \`authToken\`.
 
 **Ask which key to use**, then pass exactly one:
 - **ephemeral: true** — server-generated throwaway key; the returned \`privateKey\` is shown so the user can keep or fund it (funded ephemeral = paid jobs).

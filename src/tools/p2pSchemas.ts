@@ -13,9 +13,12 @@ export type NodeP2PInput = {
 }
 
 /** Shared doc block for tools that accept ocean.js SignerOrAuthTokenOrSignature via MCP. */
-export const P2P_AUTH_SIGNING_GUIDE = `## Authentication
+export const P2P_AUTH_SIGNING_GUIDE = `## Identity modes for an agent
+An agent acting for a user proves identity in one of two ways: (1) it **holds a private key** and signs locally (mint a token via create_auth_token, or build a completeSignature), or (2) the user/agent **passes an authToken**. Only the private-key mode can also auto-fix escrow (deposit/authorize). **Auth tokens are per-node** — a token is bound to the node it was minted for and must match the computeStart target peerID. If the user has neither a key nor a token, mint one at **https://dashboard.oncompute.ai/nodes/tokens** (requires the target node peerID).
+
+## Authentication
 Provide **exactly one** of:
-- **authToken**: JWT string from the node (createAuthToken / generateAuthToken in ocean.js). Sent as the request authorization header; the node derives your consumer address from the token.
+- **authToken**: JWT string from the node (createAuthToken / generateAuthToken in ocean.js, or minted at https://dashboard.oncompute.ai/nodes/tokens). Sent as the request authorization header; the node derives your consumer address from the token.
 - **completeSignature**: Use when the wallet signs outside this MCP server. Object fields:
   - **consumerAddress**: Checksummed or lower-case 0x-prefixed address of the signer.
   - **nonce**: String decimal integer equal to **(nonce returned by getNonce) + 1**. ocean.js \`getSignedCommandParams\` fetches the current nonce from the node, adds 1, and uses that string when signing.
@@ -103,10 +106,10 @@ export const P2P_COMPUTE_PAYMENT_GUIDE = `## Duration vs escrow lock — differe
 Node enforces \`resources[].min\`, so requesting \`cpu: 1\` may bill the env minimum. Trust **payment.amount** (raw token base units). Before showing the cost: call **get_erc20_token_info(chainId, payment.token, rawAmount=payment.amount)** and display \`<formattedAmount> <symbol>\` (raw only as a parenthetical). Use the raw value for the on-chain comparisons below.
 
 ## Typical paid flow
-1. **getComputeEnvironments** → pick env; note \`minJobDuration\` and \`resources[].min\`.
-2. **initializeCompute** with \`validUntil = env.minJobDuration\` → read \`payment.{amount,minLockSeconds,token,payee}\`.
-3. **escrow_get_authorizations(token, payer, payee)** → array of tuples in ABI order \`[payee, maxLockedAmount, currentLockedAmount, maxLockSeconds, maxLockCounts, currentLocks]\` (uint256 fields are decimal strings — compare via \`BigInt\`). Require \`maxLockedAmount ≥ payment.amount\`, \`maxLockSeconds ≥ payment.minLockSeconds\`, and \`escrow_get_user_funds ≥ payment.amount\`. Deposit/authorize if short.
-4. **computeStart** with \`maxJobDuration = env.minJobDuration\`.`
+1. **getComputeEnvironments** → pick env; note \`minJobDuration\`, \`maxJobDuration\`, and \`resources[].min\`.
+2. **initializeCompute** with \`validUntil = env.minJobDuration\` → read \`payment.{escrowAddress,amount,minLockSeconds,token,payee}\`.
+3. **escrow_preflight** with that \`payment\`, the env \`maxJobDuration\`, and an identity (\`authToken\` / \`privateKey\` / \`consumerAddress\`). It resolves the payer, checks escrow funds + the payee authorization, and returns \`ready\` / \`canStartThisJob\`. With a \`privateKey\` it auto-deposits + authorizes; otherwise it returns a Manage-escrow redirect. Authorizations are provisioned **generously** (\`maxLockedAmount ≥ amount × parallelJobs\`, \`maxLockSeconds ≥ maxJobDuration + 24h\`, \`maxLockCounts ≥ parallelJobs\`) so they are set once and reused — each running job locks the full amount up front. (The low-level \`escrow_get_authorizations\` / \`escrow_get_user_funds\` / \`escrow_deposit\` / \`escrow_authorize\` tools remain for finer control.)
+4. **computeStart** with \`maxJobDuration = env.minJobDuration\`. computeStart re-runs this preflight as a hard gate and refuses to start when escrow can't back the job (bypass with \`skipEscrowPreflight: true\`).`
 
 /** Tells the calling model to poll a started job to completion and fetch output without pausing to ask. Status values verified against ocean-node C2DStatusNumber/C2DStatusText. */
 export const P2P_COMPUTE_POLLING_GUIDE = `## After starting: poll to completion, fetch output — do NOT ask between polls
