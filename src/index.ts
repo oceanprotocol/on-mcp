@@ -66,10 +66,6 @@ async function startStdioServer(serverContext: ServerContext) {
 }
 
 async function startSseServer(serverContext: ServerContext) {
-  // Plain express app instead of the SDK's createMcpExpressApp: the helper
-  // hardwires express.json() at the default 100kb body limit, which 413s
-  // base64 uploads (upload_persistent_storage_file) before the MCP transport
-  // sees them. 8mb allows ~6MB of raw file bytes per call after base64 inflation.
   const app = express()
   app.use(express.json({ limit: '8mb' }))
   const transports: Record<string, StreamableHTTPServerTransport> = {}

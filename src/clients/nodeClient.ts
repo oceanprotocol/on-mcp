@@ -44,7 +44,6 @@ async function withTimeout<T>(
   }
 }
 
-// 1 MiB per frame, safely under ocean-node's 4 MiB lpStream read-buffer cap
 const UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 async function* chunkedUint8(buf: Uint8Array): AsyncIterable<Uint8Array> {
