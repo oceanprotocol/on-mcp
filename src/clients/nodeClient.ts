@@ -44,8 +44,13 @@ async function withTimeout<T>(
   }
 }
 
-async function* singleChunkUint8(buf: Uint8Array): AsyncIterable<Uint8Array> {
-  yield buf
+// 1 MiB per frame, safely under ocean-node's 4 MiB lpStream read-buffer cap
+const UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+async function* chunkedUint8(buf: Uint8Array): AsyncIterable<Uint8Array> {
+  for (let off = 0; off < buf.byteLength; off += UPLOAD_CHUNK_BYTES) {
+    yield buf.subarray(off, Math.min(off + UPLOAD_CHUNK_BYTES, buf.byteLength))
+  }
 }
 
 export class NodeClient {
@@ -791,7 +796,7 @@ export class NodeClient {
         auth,
         bucketId,
         fileName,
-        singleChunkUint8(new Uint8Array(buf)),
+        chunkedUint8(buf),
         AbortSignal.timeout(timeout)
       )) as T
     } catch (error) {

@@ -1,8 +1,8 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js'
 import { Wallet } from 'ethers'
 import { randomUUID } from 'node:crypto'
+import express from 'express'
 import type { Request, Response } from 'express'
 
 import { ProviderInstance } from '@oceanprotocol/lib'
@@ -66,7 +66,12 @@ async function startStdioServer(serverContext: ServerContext) {
 }
 
 async function startSseServer(serverContext: ServerContext) {
-  const app = createMcpExpressApp({ host: sseHost })
+  // Plain express app instead of the SDK's createMcpExpressApp: the helper
+  // hardwires express.json() at the default 100kb body limit, which 413s
+  // base64 uploads (upload_persistent_storage_file) before the MCP transport
+  // sees them. 8mb allows ~6MB of raw file bytes per call after base64 inflation.
+  const app = express()
+  app.use(express.json({ limit: '8mb' }))
   const transports: Record<string, StreamableHTTPServerTransport> = {}
 
   const getHeaderValue = (header: string | string[] | undefined): string | undefined =>
