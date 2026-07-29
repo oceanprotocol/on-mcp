@@ -18,6 +18,28 @@ export const LOCK_DURATION_BUFFER_SECONDS = 86400 // 24h
 export const DEFAULT_PARALLEL_JOBS = 3
 /** Deep link to the dashboard's escrow management view. */
 export const MANAGE_ESCROW_URL = 'https://dashboard.oncompute.ai/profile/escrow'
+/** Assumed `claimDurationTimeout` when the node's real value is unknowable — see below. */
+export const DEFAULT_CLAIM_DURATION_TIMEOUT_SECONDS = 3600
+
+/**
+ * `minLockSeconds` for a service of `durationSeconds`.
+ *
+ * ocean-node's rule is `Escrow.getMinLockTime(d) = d + claimDurationTimeout`
+ * (`utils/escrow.ts:40`), where `claimDurationTimeout` is **per-node config**
+ * (`schemas.ts:786`, `z.coerce.number().default(3600)`) that **no protocol command exposes**.
+ * So this is a padded *lower bound*, not an equality — do NOT "simplify" it to a bare `+ 3600`:
+ * on a node that raised the timeout, an exact-3600 figure would green-light a service whose
+ * `createLock` then fails, with nothing in the output to explain why.
+ *
+ * The padding only affects the figure echoed to the caller; `escrow_preflight`'s own
+ * authorization target (`maxJobDuration + 24h`) already dwarfs any plausible setting.
+ */
+export function serviceMinLockSeconds(durationSeconds: number): number {
+  return (
+    durationSeconds +
+    Math.max(DEFAULT_CLAIM_DURATION_TIMEOUT_SECONDS, Math.ceil(0.25 * durationSeconds))
+  )
+}
 
 const ERC20_DECIMALS_ABI = ['function decimals() view returns (uint8)']
 
@@ -276,7 +298,7 @@ export function evaluateEscrowReadiness(params: {
   }
 }
 
-async function getTokenDecimals(
+export async function getTokenDecimals(
   evmRegistry: EvmProviderRegistry,
   chainId: number,
   token: string

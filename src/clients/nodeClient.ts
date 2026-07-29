@@ -8,6 +8,13 @@ import {
   type ComputeResourceRequest,
   type dockerRegistryAuth,
   type PersistentStorageCreateBucketRequest,
+  type ServiceJob,
+  type ServiceJobListed,
+  type ServiceListFilters,
+  type ServicePayment,
+  type ServiceRestartParams,
+  type ServiceStartParams,
+  type ServiceTemplatePublic,
   type SignerOrAuthTokenOrSignature,
   type StorageObject
 } from '@oceanprotocol/lib'
@@ -46,6 +53,52 @@ async function withTimeout<T>(
 
 async function* singleChunkUint8(buf: Uint8Array): AsyncIterable<Uint8Array> {
   yield buf
+}
+
+export type CollectedStream = {
+  bytes: Uint8Array
+  byteLength: number
+  /** True when `maxBytes` cut the collection short. */
+  truncated: boolean
+  /** Bytes read off the wire before truncation, when known. */
+  totalRead: number
+}
+
+/**
+ * Drain an LP-framed byte stream into one buffer, optionally stopping after `maxBytes`.
+ * Shared by the compute-result, compute-log and service-log collectors — service logs default
+ * to full container history, which for a days-old service is far too large to hand a model.
+ */
+async function collectStream(raw: unknown, maxBytes?: number): Promise<CollectedStream> {
+  const iterable = raw as AsyncIterable<Uint8Array>
+  const chunks: Uint8Array[] = []
+  let kept = 0
+  let totalRead = 0
+  let truncated = false
+  for await (const chunk of iterable) {
+    const u8 = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
+    totalRead += u8.length
+    if (maxBytes !== undefined && kept >= maxBytes) {
+      truncated = true
+      break
+    }
+    if (maxBytes !== undefined && kept + u8.length > maxBytes) {
+      const slice = u8.subarray(0, maxBytes - kept)
+      chunks.push(slice)
+      kept += slice.length
+      truncated = true
+      break
+    }
+    chunks.push(u8)
+    kept += u8.length
+  }
+  const merged = new Uint8Array(kept)
+  let pos = 0
+  for (const c of chunks) {
+    merged.set(c, pos)
+    pos += c.length
+  }
+  return { bytes: merged, byteLength: kept, truncated, totalRead }
 }
 
 export class NodeClient {
@@ -644,12 +697,18 @@ export class NodeClient {
     }
   }
 
+  /**
+   * Mint a JWT from a caller-built signature (the `completeSignature` companion to
+   * `createAuthTokenWithSigner`). The signed message includes the target node's peerId —
+   * see P2P_AUTH_SIGNING_GUIDE.
+   */
   async createAuthToken(
     node: NodeP2P,
     address: string,
     signature: string,
     nonce: string,
-    timeout: number
+    timeout: number,
+    validUntil?: number
   ): Promise<string> {
     try {
       const token = await getP2p().generateSignedAuthToken(
@@ -657,6 +716,7 @@ export class NodeClient {
         signature,
         nonce,
         node,
+        validUntil,
         AbortSignal.timeout(timeout)
       )
       return typeof token === 'string' ? token : `${token}`
@@ -752,23 +812,10 @@ export class NodeClient {
         jobId,
         AbortSignal.timeout(timeout)
       )
-      const iterable = raw as AsyncIterable<Uint8Array>
-      const chunks: Uint8Array[] = []
-      for await (const chunk of iterable) {
-        const u8 = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
-        chunks.push(u8)
-      }
-      let total = 0
-      for (const c of chunks) total += c.length
-      const merged = new Uint8Array(total)
-      let pos = 0
-      for (const c of chunks) {
-        merged.set(c, pos)
-        pos += c.length
-      }
+      const collected = await collectStream(raw)
       return {
-        dataBase64: Buffer.from(merged).toString('base64'),
-        byteLength: total
+        dataBase64: Buffer.from(collected.bytes).toString('base64'),
+        byteLength: collected.byteLength
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`
@@ -868,6 +915,213 @@ export class NodeClient {
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`
       throw new Error(`P2P cidFromRawString failed: ${message}`)
+    }
+  }
+
+  /* ── Service-on-Demand ─────────────────────────────────────────────────────
+   * The 8 SERVICE_* protocol commands. ocean.js implements all of them on
+   * P2pProvider with the same signatures as HttpProvider, so these are thin
+   * wrappers like every other method here — no transport work needed.
+   */
+
+  /** Operator-curated catalogue. **No auth.** Env-var *values* are stripped (keys only). */
+  async getServiceTemplates(
+    node: NodeP2P,
+    timeout: number,
+    chainId?: number
+  ): Promise<ServiceTemplatePublic[]> {
+    try {
+      return await getP2p().getServiceTemplates(
+        node,
+        chainId,
+        AbortSignal.timeout(timeout)
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P getServiceTemplates failed: ${message}`)
+    }
+  }
+
+  /**
+   * Start a service. Returns immediately with a `Starting (10)` record — the escrow lock,
+   * image pull/build and container start all happen in a background loop, so callers must
+   * poll `getServiceStatus`.
+   */
+  async serviceStart(
+    node: NodeP2P,
+    auth: SignerOrAuthTokenOrSignature,
+    params: ServiceStartParams,
+    timeout: number
+  ): Promise<ServiceJob[]> {
+    try {
+      // Routed via ProviderInstance (BaseProvider), not getP2p(): getImpl() dispatches a
+      // NodeP2P target to the same P2pProvider, so the wire behaviour is identical — but only
+      // BaseProvider carries the notifyIncentiveBackendServiceStarted hook. That hook is a
+      // no-op unless INCENTIVE_BACKEND_URL is set (we do not set it); the point is that the
+      // call site is correct, so a deployment that later sets it needs no code change.
+      // Do not "fix" this to match its getP2p() siblings.
+      return await ProviderInstance.serviceStart(
+        node,
+        auth,
+        params,
+        AbortSignal.timeout(timeout)
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P serviceStart failed: ${message}`)
+    }
+  }
+
+  /** Owner-scoped. Omit `serviceId` to get all of the caller's services. */
+  async getServiceStatus(
+    node: NodeP2P,
+    auth: SignerOrAuthTokenOrSignature,
+    timeout: number,
+    serviceId?: string
+  ): Promise<ServiceJob[]> {
+    try {
+      return await getP2p().getServiceStatus(
+        node,
+        auth,
+        serviceId,
+        AbortSignal.timeout(timeout)
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P getServiceStatus failed: ${message}`)
+    }
+  }
+
+  /** Authenticated but **node-wide**, not owner-scoped: every owner's services are returned. */
+  async getServices(
+    node: NodeP2P,
+    auth: SignerOrAuthTokenOrSignature,
+    timeout: number,
+    filters?: ServiceListFilters
+  ): Promise<ServiceJobListed[]> {
+    try {
+      return await getP2p().getServices(node, auth, filters, AbortSignal.timeout(timeout))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P getServices failed: ${message}`)
+    }
+  }
+
+  /** Only `Starting`/`Running`; re-checks the access list; takes a new escrow lock + claim. */
+  async serviceExtend(
+    node: NodeP2P,
+    auth: SignerOrAuthTokenOrSignature,
+    serviceId: string,
+    additionalDuration: number,
+    payment: ServicePayment,
+    timeout: number
+  ): Promise<ServiceJob[]> {
+    try {
+      return await getP2p().serviceExtend(
+        node,
+        auth,
+        serviceId,
+        additionalDuration,
+        payment,
+        AbortSignal.timeout(timeout)
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P serviceExtend failed: ${message}`)
+    }
+  }
+
+  /** REUSE (no params) or RESPEC (any container param ⇒ `image` mandatory). Asynchronous. */
+  async serviceRestart(
+    node: NodeP2P,
+    auth: SignerOrAuthTokenOrSignature,
+    serviceId: string,
+    timeout: number,
+    params?: ServiceRestartParams
+  ): Promise<ServiceJob[]> {
+    try {
+      // Routed via ProviderInstance for the same reason as serviceStart above: since
+      // @oceanprotocol/lib 9.0.0-next.7, BaseProvider.serviceRestart carries a
+      // notifyIncentiveBackendServiceRestarted hook (fired only in RESPEC mode, i.e. when
+      // image/tag/dockerCmd is present) that P2pProvider does not have. getImpl() dispatches
+      // this NodeP2P target to the same P2pProvider, so the wire behaviour is identical.
+      // No-op unless INCENTIVE_BACKEND_URL is set.
+      return await ProviderInstance.serviceRestart(
+        node,
+        auth,
+        serviceId,
+        params,
+        AbortSignal.timeout(timeout)
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P serviceRestart failed: ${message}`)
+    }
+  }
+
+  /** Owner-gated. Tears the container down but **keeps** the paid resource reservation. */
+  async serviceStop(
+    node: NodeP2P,
+    auth: SignerOrAuthTokenOrSignature,
+    serviceId: string,
+    timeout: number
+  ): Promise<ServiceJob[]> {
+    try {
+      return await getP2p().serviceStop(
+        node,
+        auth,
+        serviceId,
+        AbortSignal.timeout(timeout)
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P serviceStop failed: ${message}`)
+    }
+  }
+
+  /**
+   * Collect a running service's container logs. Owner-scoped, and only while the service is
+   * `Running`/`Error`. Returns decoded text when the payload is small and valid UTF-8 (logs
+   * are text — base64 is pure token waste for a model), else base64. `maxBytes` caps the
+   * collection: without `since`, the node streams the container's **whole** history.
+   */
+  async serviceLogs(
+    node: NodeP2P,
+    auth: SignerOrAuthTokenOrSignature,
+    serviceId: string,
+    timeout: number,
+    since?: string,
+    maxBytes?: number
+  ): Promise<{
+    text?: string
+    dataBase64?: string
+    byteLength: number
+    truncated: boolean
+    bytesAvailableAtLeast?: number
+  }> {
+    try {
+      const raw = await getP2p().serviceGetStreamableLogs(
+        node,
+        auth,
+        serviceId,
+        since,
+        AbortSignal.timeout(timeout)
+      )
+      const collected = await collectStream(raw, maxBytes)
+      const buf = Buffer.from(collected.bytes)
+      const base = {
+        byteLength: collected.byteLength,
+        truncated: collected.truncated,
+        ...(collected.truncated ? { bytesAvailableAtLeast: collected.totalRead } : {})
+      }
+      const text = buf.toString('utf8')
+      // Round-trip check: a lone replacement char means the payload is not (or was cut
+      // mid-) UTF-8, so hand back bytes rather than corrupted text.
+      if (Buffer.from(text, 'utf8').equals(buf)) return { text, ...base }
+      return { dataBase64: buf.toString('base64'), ...base }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`P2P serviceGetStreamableLogs failed: ${message}`)
     }
   }
 }

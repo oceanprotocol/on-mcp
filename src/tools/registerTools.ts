@@ -6,6 +6,7 @@ import { registerEvmContractTools } from './evmContractTools.js'
 import { registerIncentivesTools } from './registerIncentivesTools.js'
 import { registerP2pProviderTools } from './p2pProviderTools.js'
 import { registerResourceTools } from './resourcesTools.js'
+import { registerServiceTools } from './serviceTools.js'
 
 type RegisterToolsParams = {
   server: McpServer
@@ -19,6 +20,7 @@ export function registerTools({
   docsIndex
 }: RegisterToolsParams): void {
   registerP2pProviderTools({ server, nodeClient, evmRegistry })
+  registerServiceTools({ server, nodeClient, evmRegistry })
   registerEvmContractTools({ server, evmRegistry })
   registerAssetTools({ server, evmRegistry })
   registerIncentivesTools({ server, incentivesClient })

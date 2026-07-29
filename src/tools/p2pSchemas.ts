@@ -26,9 +26,11 @@ Provide **exactly one** of:
 
 ### Plaintext string to sign (before hashing)
 Build **one string with no separators** (same as BaseProvider \`getSignature\` in ocean.js):
-\`message = String(consumerAddress) + String(nonce) + String(protocolCommand)\`
+\`message = String(consumerAddress) + String(nonce) + String(protocolCommand) + String(issuerPeerId)\`
 
 \`protocolCommand\` must be the exact command string for this call (see PROTOCOL_COMMANDS in @oceanprotocol/lib), e.g. \`${PROTOCOL_COMMANDS.COMPUTE_START}\` for paid compute start.
+
+\`issuerPeerId\` is **empty (\`''\`) for every command except \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\`**, where it is the target node's libp2p peerId (the \`id\` field from **node_status**). Getting this wrong yields a signature the node rejects — with an empty suffix the string is identical to the pre-v9 form, so only token minting is affected.
 
 ### Nonce workflow
 1. Call **getNonce** with the same target node and your **consumerAddress**.
@@ -58,7 +60,15 @@ If you reimplement signing without ocean.js, your wallet must produce the same E
 | uploadPersistentStorageFile | \`${PROTOCOL_COMMANDS.PERSISTENT_STORAGE_UPLOAD_FILE}\` |
 | encrypt (p2p_encrypt) | \`${PROTOCOL_COMMANDS.ENCRYPT}\` |
 | download_asset_file | \`${PROTOCOL_COMMANDS.DOWNLOAD}\` |
-| create_auth_token | \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\` |
+| create_auth_token | \`${PROTOCOL_COMMANDS.CREATE_AUTH_TOKEN}\` — **append the node peerId** to the signed message (see above) |
+| serviceStart | \`${PROTOCOL_COMMANDS.SERVICE_START}\` |
+| serviceStatus | \`${PROTOCOL_COMMANDS.SERVICE_GET_STATUS}\` |
+| getServices | \`${PROTOCOL_COMMANDS.SERVICE_LIST}\` |
+| serviceExtend | \`${PROTOCOL_COMMANDS.SERVICE_EXTEND}\` |
+| serviceRestart | \`${PROTOCOL_COMMANDS.SERVICE_RESTART}\` |
+| serviceStop | \`${PROTOCOL_COMMANDS.SERVICE_STOP}\` |
+| serviceLogs | \`${PROTOCOL_COMMANDS.SERVICE_GET_STREAMABLE_LOGS}\` |
+| getServiceTemplates | \`${PROTOCOL_COMMANDS.SERVICE_GET_TEMPLATES}\` — **no auth**, no signature |
 
 **computeStatus** still requires authToken or completeSignature (ocean.js passes consumerAddress and authorization); there is no separate extra signature field in the body beyond what the library adds.`
 
@@ -91,7 +101,9 @@ export const P2P_RECOMMENDED_NODES_GUIDE = `## Default node targets
 If the user has not specified a \`nodeId\` / \`multiaddress\`, default to Ocean's recommended compute nodes by use case:
 ${OCEAN_RECOMMENDED_NODES.map(({ peerId, note }) => `- \`${peerId}\` — ${note}`).join('\n')}
 
-Resolve their multiaddrs with \`resolve_peer_multiaddr\` before calling node-targeted tools. Only use \`find_provider\` for capacity/feature discovery beyond these defaults.`
+Resolve their multiaddrs with \`resolve_peer_multiaddr\` before calling node-targeted tools. Only use \`find_provider\` for capacity/feature discovery beyond these defaults.
+
+**For Service-on-Demand, do not use this list or \`find_provider\`.** Service capability is advertised per compute environment (\`features.services\`) and has **no DHT advertise string**, so discovery is a fan-out: use \`findServiceNodes\` / \`findServiceEnvironments\`. The feature is mid-rollout — only some nodes have it enabled today — which is why capability is probed rather than hardcoded.`
 
 /** Returned alongside an ephemeral consumer key so the user understands its throwaway nature. */
 export const EPHEMERAL_CONSUMER_KEY_DISCLAIMER =

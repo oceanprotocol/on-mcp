@@ -2,9 +2,11 @@ import type { DocIndex } from '../docs/loader.js'
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
 import { C2D_ALGORITHM_AUTHORING_MARKDOWN } from '../utils/c2dAlgorithmAuthoring.js'
 import { C2D_FIND_PROVIDER_RESOURCE_MARKDOWN } from '../utils/c2dProviderSearchString.js'
+import { SERVICE_ON_DEMAND_MARKDOWN } from '../utils/serviceOnDemand.js'
 
 export const C2D_FIND_PROVIDER_URI = 'ocean://docs/c2d-find-provider-search'
 export const C2D_ALGORITHM_AUTHORING_URI = 'ocean://docs/c2d-algorithm-authoring'
+export const SERVICE_ON_DEMAND_URI = 'ocean://docs/service-on-demand'
 export const EVM_SUPPORTED_CHAINS_URI = 'ocean://evm/supported-chains'
 
 export type ResourceSummary = {
@@ -77,6 +79,14 @@ export function listBuiltinResources(): ResourceSummary[] {
       mimeType: 'text/markdown'
     },
     {
+      name: 'service-on-demand',
+      uri: SERVICE_ON_DEMAND_URI,
+      title: 'Service-on-Demand (long-running containers)',
+      description:
+        'How Ocean services differ from compute jobs: asynchronous start, the status codes (incl. 45 Restarting and the Stopping-is-not-terminal trap), the pay-up-front reservation model, client-side cost estimation, REUSE/RESPEC restart semantics, templates as suggestions, and where endpoint hosts come from.',
+      mimeType: 'text/markdown'
+    },
+    {
       name: 'evm-supported-chains',
       uri: EVM_SUPPORTED_CHAINS_URI,
       title: 'EVM supported chains',
@@ -104,6 +114,14 @@ export async function getBuiltinResourceContent(
       uri,
       mimeType: 'text/markdown',
       text: C2D_ALGORITHM_AUTHORING_MARKDOWN
+    }
+  }
+
+  if (uri === SERVICE_ON_DEMAND_URI) {
+    return {
+      uri,
+      mimeType: 'text/markdown',
+      text: SERVICE_ON_DEMAND_MARKDOWN
     }
   }
 

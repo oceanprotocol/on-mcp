@@ -140,6 +140,10 @@ Tools are defined in `src/tools/`. Names are stable identifiers for agents and c
 
 **Compute:** `initializeCompute`, `computeStart`, `freeComputeStart`, `computeStop`, `computeStatus`, `getComputeResult`, `get_compute_result_url`, `compute_streamable_logs`, `downloadNodeLogs`
 
+**Services (Service-on-Demand — long-running containers):** `findServiceEnvironments`, `findServiceNodes`, `getServiceTemplates`, `estimateServiceCost`, `serviceStart`, `serviceStatus`, `getServices`, `serviceExtend`, `serviceRestart`, `serviceStop`, `serviceLogs`
+
+A service is a container the node keeps up for a pre-paid `duration`, exposing endpoints you connect to — not a job that runs to completion. The lifecycle differs from compute in ways that bite: **start is asynchronous** (poll `serviceStatus`), there is **no server-side quote** (`estimateServiceCost` is a client-side estimate; feed its `payment` object to `escrow_preflight`), the **resource reservation is held for the whole paid window** (stopping early neither refunds nor frees capacity), and `getServices` is **node-wide rather than owner-scoped**. Read `ocean://docs/service-on-demand` before using these.
+
 **Storage and downloads:** `createPersistentStorageBucket`, `getPersistentStorageBuckets`, `listPersistentStorageFiles`, `getPersistentStorageFileObject`, `deletePersistentStorageFile`, `upload_persistent_storage_file`, `get_download_fees`, `download_asset_file`
 
 **Auth and crypto:** `create_auth_token`, `p2p_encrypt`
@@ -161,6 +165,8 @@ Many tools require targeting a peer via **`nodeId`** and/or **`multiaddress`** (
 | Name | URI | Content |
 |------|-----|--------|
 | `c2d-find-provider-search` | `ocean://docs/c2d-find-provider-search` | Markdown: how C2D provider strings are advertised and how to combine `find_provider` results for multi-dimensional requirements. |
+| `c2d-algorithm-authoring` | `ocean://docs/c2d-algorithm-authoring` | Markdown: recommended C2D path — prebuilt `oceanprotocol/c2d_examples` image plus inline `rawcode`. |
+| `service-on-demand` | `ocean://docs/service-on-demand` | Markdown: Service-on-Demand — asynchronous start, status codes (incl. `45 Restarting` and the `Stopping`-is-not-terminal trap), the pay-up-front reservation model, client-side cost estimation, REUSE/RESPEC restart semantics, and where endpoint hosts come from. |
 | `evm-supported-chains` | `ocean://evm/supported-chains` | JSON: configured EVM chains with latest block number and block timestamp from each chain's fallback provider. |
 
 If your MCP client only shows **tools** (not resources), use `list_resources` and `get_resource` to discover and fetch these same contents.
