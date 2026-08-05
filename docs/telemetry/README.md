@@ -239,19 +239,25 @@ blockage would blame payment friction for an infrastructure problem — and surf
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | Collector endpoint. **Unset → telemetry off.** |
-| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | *(unset)* | Metrics-only endpoint; accepted as a fallback when the one above is unset |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | Collector endpoint for both signals. **Unset → telemetry off**, unless both per-signal vars below are set. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | *(unset)* | Per-signal override. Read by the OTel exporter directly |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | *(unset)* | Per-signal override. Read by the OTel exporter directly |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | Auth headers, if exporting past a Collector |
 | `MCP_TELEMETRY_ENABLED` | `auto` | `auto` = on when SSE + endpoint set; `false` = hard off |
 | `MCP_TELEMETRY_USER_ID_SALT` | *(unset)* | Optional. Makes `user.id` non-invertible — see [privacy](#g-privacy-and-data-handling) |
 | `MCP_TELEMETRY_USER_ID_INCLUDE_PORT` | `0` | Experimental; leave off |
-| `MCP_TELEMETRY_HEALTH_INTERVAL_MS` | `30000` | Health gauge sampling |
 | `OTEL_SERVICE_NAME` | `ocean-mcp` | Resource attribute |
 | `OTEL_SERVICE_VERSION` | `0.0.1` | Resource attribute |
 | `DEPLOYMENT_ENVIRONMENT` | `NODE_ENV` | `production` / `staging` / … |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metric flush interval (ms) |
 | `OTEL_TRACES_SAMPLER` / `_ARG` | `parentbased_always_on` | Turn down under load |
 | `TRUST_PROXY` | `loopback` | Express trust-proxy — **must match your topology**, see below |
+
+> **Endpoint resolution.** Both signals are always exported, and each OTel exporter resolves its own
+> endpoint — silently defaulting to `http://localhost:4318/v1/{traces,metrics}` when its var is
+> unset. So **one** per-signal var is not enough to enable telemetry: it would report enabled and
+> send the other signal into a localhost void. Set `OTEL_EXPORTER_OTLP_ENDPOINT` (normal case), or
+> both per-signal vars together.
 
 ### `TRUST_PROXY` values
 
@@ -329,7 +335,7 @@ grep telemetry debug.log
 Other forms you may see:
 
 ```text
-[telemetry] disabled — OTEL_EXPORTER_OTLP_ENDPOINT is not set
+[telemetry] disabled — OTEL_EXPORTER_OTLP_ENDPOINT is not set (or set both OTEL_EXPORTER_OTLP_TRACES_ENDPOINT and OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)
 [telemetry] disabled — MCP_TELEMETRY_ENABLED is off
 ```
 
@@ -528,6 +534,10 @@ npm run test:unit
 ---
 
 ## F. Troubleshooting
+
+**Metrics arrive but traces do not (or vice versa).** You set only one per-signal endpoint. That is
+now refused at startup rather than half-working — check the `[telemetry] disabled` line. Set
+`OTEL_EXPORTER_OTLP_ENDPOINT`, or both per-signal vars.
 
 **No data anywhere.** Work down the path:
 

@@ -38,12 +38,40 @@ describe('telemetry/config', () => {
     expect(config.disabledReason).to.contain('OTEL_EXPORTER_OTLP_ENDPOINT')
   })
 
-  it('accepts the metrics-specific endpoint as a fallback', () => {
-    const config = loadTelemetryConfig({
+  it('does NOT enable on a single signal-specific endpoint', () => {
+    // Both signals are always exported, and each OTel exporter resolves its endpoint independently,
+    // silently defaulting to http://localhost:4318. Enabling on one would report "enabled" while
+    // shipping the other signal into a localhost void.
+    const metricsOnly = loadTelemetryConfig({
       MCP_TRANSPORT: 'sse',
       OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://collector:4318/v1/metrics'
     } as NodeJS.ProcessEnv)
+    expect(metricsOnly.enabled).to.equal(false)
+    expect(metricsOnly.disabledBy).to.equal('endpoint')
+
+    const tracesOnly = loadTelemetryConfig({
+      MCP_TRANSPORT: 'sse',
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'http://collector:4318/v1/traces'
+    } as NodeJS.ProcessEnv)
+    expect(tracesOnly.enabled).to.equal(false)
+    expect(tracesOnly.disabledBy).to.equal('endpoint')
+  })
+
+  it('enables on both signal endpoints together', () => {
+    const config = loadTelemetryConfig({
+      MCP_TRANSPORT: 'sse',
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'http://collector:4318/v1/traces',
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://collector:4318/v1/metrics'
+    } as NodeJS.ProcessEnv)
     expect(config.enabled).to.equal(true)
+    expect(config.endpoint).to.contain('traces')
+    expect(config.endpoint).to.contain('metrics')
+  })
+
+  it('names both routes to enablement when no endpoint is set', () => {
+    const config = loadTelemetryConfig({ MCP_TRANSPORT: 'sse' } as NodeJS.ProcessEnv)
+    expect(config.disabledReason).to.contain('OTEL_EXPORTER_OTLP_ENDPOINT')
+    expect(config.disabledReason).to.contain('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT')
   })
 
   it('honours every hard off switch spelling', () => {
@@ -88,13 +116,16 @@ describe('telemetry/config', () => {
       expect(readPositiveInt('-5', 30_000)).to.equal(30_000)
     })
 
-    it('accepts a positive value', () => {
+    it('rejects a decimal — 0.1 is finite and positive but means a 0.1ms busy loop', () => {
+      expect(readPositiveInt('0.1', 30_000)).to.equal(30_000)
+      expect(readPositiveInt('1.5', 30_000)).to.equal(30_000)
+      expect(readPositiveInt('5000.9', 30_000)).to.equal(30_000)
+      expect(readPositiveInt('1e-3', 30_000)).to.equal(30_000)
+    })
+
+    it('accepts a positive integer, including exponent notation', () => {
       expect(readPositiveInt('5000', 30_000)).to.equal(5000)
-      expect(loadTelemetryConfig(SSE_ENV).healthIntervalMs).to.equal(30_000)
-      expect(
-        loadTelemetryConfig({ ...SSE_ENV, MCP_TELEMETRY_HEALTH_INTERVAL_MS: 'nope' })
-          .healthIntervalMs
-      ).to.equal(30_000)
+      expect(readPositiveInt('1e4', 30_000)).to.equal(10_000)
     })
   })
 

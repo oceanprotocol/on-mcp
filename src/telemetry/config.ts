@@ -39,8 +39,6 @@ export type TelemetryConfig = {
    * strings. See `parseTrustProxy`.
    */
   trustProxy: string | number | boolean
-  /** Interval for the periodic health gauges (libp2p peers). */
-  healthIntervalMs: number
 }
 
 function readBool(value: string | undefined, fallback: boolean): boolean {
@@ -49,16 +47,20 @@ function readBool(value: string | undefined, fallback: boolean): boolean {
 }
 
 /**
- * Positive integer, or the fallback.
+ * Positive **integer** milliseconds, or the fallback.
  *
  * `Number(env.X ?? d)` is not equivalent: an unset var is fine, but `X=""` yields `0` and `X=abc`
  * yields `NaN`. Both then reach an OTel interval as a busy-loop or an immediate throw, and neither
  * is what the operator meant by a typo.
+ *
+ * Integrality is part of the contract, not pedantry: `0.1` is finite and positive, so a
+ * positivity-only check would accept it as a **0.1 ms export interval** — a busy loop, which is the
+ * exact failure this helper exists to prevent.
  */
 export function readPositiveInt(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim() === '') return fallback
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback
   return parsed
 }
 
@@ -98,9 +100,25 @@ export function loadTelemetryConfig(
   env: NodeJS.ProcessEnv = process.env
 ): TelemetryConfig {
   const transport = (env.MCP_TRANSPORT ?? 'stdio').toLowerCase()
-  const endpoint =
-    env.OTEL_EXPORTER_OTLP_ENDPOINT ?? env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
   const mode = (env.MCP_TELEMETRY_ENABLED ?? 'auto').toLowerCase()
+
+  const baseEndpoint = env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim() || undefined
+  const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim() || undefined
+  const metricsEndpoint = env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim() || undefined
+
+  /**
+   * We always export **both** signals, and the OTel exporters resolve their endpoint independently
+   * — falling back to `http://localhost:4318/v1/{traces,metrics}` when their own var is unset, with
+   * no error. So a single signal-specific endpoint is not enough to enable: it would report
+   * "enabled", log that one endpoint, and ship the other signal into a localhost void.
+   *
+   * Enable on the base endpoint, or on both signal endpoints together.
+   */
+  const endpoint =
+    baseEndpoint ??
+    (tracesEndpoint && metricsEndpoint
+      ? `${tracesEndpoint} (traces), ${metricsEndpoint} (metrics)`
+      : undefined)
 
   const base = {
     endpoint,
@@ -109,8 +127,7 @@ export function loadTelemetryConfig(
     environment: env.DEPLOYMENT_ENVIRONMENT ?? env.NODE_ENV ?? 'development',
     includePortInUserId: readBool(env.MCP_TELEMETRY_USER_ID_INCLUDE_PORT, false),
     userIdSalt: env.MCP_TELEMETRY_USER_ID_SALT?.trim() || undefined,
-    trustProxy: parseTrustProxy(env.TRUST_PROXY),
-    healthIntervalMs: readPositiveInt(env.MCP_TELEMETRY_HEALTH_INTERVAL_MS, 30_000)
+    trustProxy: parseTrustProxy(env.TRUST_PROXY)
   }
 
   if (mode === 'false' || mode === 'off' || mode === '0') {
@@ -134,7 +151,9 @@ export function loadTelemetryConfig(
       ...base,
       enabled: false,
       disabledBy: 'endpoint',
-      disabledReason: 'OTEL_EXPORTER_OTLP_ENDPOINT is not set'
+      disabledReason:
+        'OTEL_EXPORTER_OTLP_ENDPOINT is not set (or set both ' +
+        'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT and OTEL_EXPORTER_OTLP_METRICS_ENDPOINT)'
     }
   }
 
