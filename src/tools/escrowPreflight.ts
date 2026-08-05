@@ -4,6 +4,11 @@ import { Contract, Wallet, formatUnits, getAddress } from 'ethers'
 import { z } from 'zod/v4'
 
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
+import {
+  recordAutoFix,
+  recordPreflight,
+  type PreflightCaller
+} from '../telemetry/escrowMetrics.js'
 import { stringifyError, textContent } from '../utils/format.js'
 import { resolveConsumerAddress } from '../utils/auth.js'
 import {
@@ -107,6 +112,12 @@ export async function runEscrowPreflight(params: {
   payment: PaymentInfo
   maxJobDuration: number
   parallelJobs?: number
+  /**
+   * Which context invoked the check, for the `mcp.escrow.preflight{caller}` metric. Most
+   * preflights are the implicit gates inside `computeStart`/`serviceStart`, not this tool — see
+   * `telemetry/escrowMetrics.ts`.
+   */
+  caller?: PreflightCaller
 }): Promise<EscrowPreflightResult> {
   const { evmRegistry, payment, maxJobDuration } = params
   const parallelJobs = params.parallelJobs ?? DEFAULT_PARALLEL_JOBS
@@ -135,7 +146,7 @@ export async function runEscrowPreflight(params: {
       }
     : null
 
-  return evaluateEscrowReadiness({
+  const result = evaluateEscrowReadiness({
     payer,
     payee,
     token,
@@ -148,6 +159,10 @@ export async function runEscrowPreflight(params: {
     available,
     authorization
   })
+
+  // Recorded here rather than in the tool wrapper: two of the three callers are gates, not tools.
+  recordPreflight(result, params.caller ?? 'tool')
+  return result
 }
 
 /**
@@ -474,12 +489,14 @@ export function registerEscrowPreflightTool({ server, evmRegistry }: Params): vo
         const shouldAutoFix = !result.ready && !!privateKey && autoFix !== false
         if (shouldAutoFix) {
           autoFixActions = await autoFixEscrow({ evmRegistry, privateKey, result })
+          recordAutoFix(autoFixActions)
           result = await runEscrowPreflight({
             evmRegistry,
             payer,
             payment: paymentInfo,
             maxJobDuration,
-            parallelJobs
+            parallelJobs,
+            caller: 'tool_recheck'
           })
         }
 

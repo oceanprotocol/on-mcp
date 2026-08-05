@@ -228,7 +228,8 @@ export async function serviceEscrowGate(params: {
       payer,
       payment: built.payment,
       maxJobDuration: params.durationSeconds,
-      parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS
+      parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      caller: 'service_gate'
     })
   } catch {
     return undefined

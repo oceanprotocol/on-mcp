@@ -1,0 +1,84 @@
+# OpenTelemetry Collector for on-mcp.
+#
+# on-mcp exports OTLP/HTTP to this Collector, which fans metrics out to Prometheus/Mimir and
+# traces to Tempo. Running a Collector rather than exporting straight to the backends keeps the
+# server vendor-neutral and gives you one place to add redaction, batching, or a second backend
+# without redeploying the MCP server.
+#
+# Local dev: used as-is by docker-compose.telemetry.yml.
+# Grafana Cloud / existing stack: see the "Grafana Cloud" section in README.md — you only change
+# the two exporter endpoints and add auth headers.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  # Bounds Collector memory before the host OOMs. Tune to the container limit.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  batch:
+    timeout: 10s
+    send_batch_size: 8192
+
+  # Defence in depth. The server already refuses to emit these (see the attribute allowlist in
+  # README.md §G), so anything matching here is a bug worth fixing at the source — but the
+  # Collector is the last chance to stop it reaching long-term storage.
+  attributes/scrub:
+    actions:
+      - key: privateKey
+        action: delete
+      - key: private_key
+        action: delete
+      - key: authToken
+        action: delete
+      - key: consumerAddress
+        action: delete
+      - key: did
+        action: delete
+      - key: jobId
+        action: delete
+      - key: serviceId
+        action: delete
+
+exporters:
+  # Metrics → Prometheus (remote-write receiver) or Mimir. Point at Mimir's
+  # /api/v1/push in a production deployment.
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    tls:
+      insecure: true
+    # Keeps `service.name` / `deployment.environment` queryable as labels in PromQL.
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  # Traces → Tempo.
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+  # Uncomment while debugging to see what is actually arriving.
+  # debug:
+  #   verbosity: detailed
+
+service:
+  telemetry:
+    logs:
+      level: info
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/scrub, batch]
+      exporters: [prometheusremotewrite]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/scrub, batch]
+      exporters: [otlp/tempo]

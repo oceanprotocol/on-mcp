@@ -98,7 +98,8 @@ async function escrowPreflightGate(
       payer,
       payment,
       maxJobDuration: args.maxJobDuration,
-      parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS
+      parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      caller: 'compute_gate'
     })
     if (!preflight.canStartThisJob) {
       return {
