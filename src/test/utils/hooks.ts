@@ -121,3 +121,16 @@ export function finishedSpans(): ReadableSpan[] {
 export function resetSpans(): void {
   spanExporter.reset()
 }
+
+/**
+ * There is deliberately **no `resetMetrics()`**.
+ *
+ * `telemetry/metrics.ts` resolves its instruments once at module load, and an OTel instrument is
+ * bound to the provider that created it — re-registering a fresh `MeterProvider` leaves every cached
+ * instrument writing to the old one, so a reset helper would silently do nothing and later
+ * assertions would read an empty reader. (Verified: after re-registration the new reader observes no
+ * data at all.)
+ *
+ * Counters are therefore cumulative for the whole run, and tests must either use an attribute value
+ * unique to that test or baseline with `counterValue`/`histogramCount` and assert the delta.
+ */
