@@ -100,6 +100,9 @@ describe('telemetry/inspectResult', () => {
 
   describe('polling dedup', () => {
     it('counts a terminal compute job once across many polls', async () => {
+      const before = await counterValue('mcp.compute.jobs.observed', {
+        'job.status': 'success'
+      })
       const res = envelope('computeStatus', [
         { jobId: 'job-dedup-1', status: 70, statusText: 'Job finished' }
       ])
@@ -107,10 +110,13 @@ describe('telemetry/inspectResult', () => {
 
       expect(
         await counterValue('mcp.compute.jobs.observed', { 'job.status': 'success' })
-      ).to.equal(1)
+      ).to.equal(before + 1)
     })
 
     it('counts a terminal service once across many polls', async () => {
+      const before = await counterValue('mcp.service.observed', {
+        'service.status': 'stopped'
+      })
       const res = envelope('serviceStatus', {
         services: [{ serviceId: 'svc-dedup-1', status: 70 }]
       })
@@ -118,7 +124,7 @@ describe('telemetry/inspectResult', () => {
 
       expect(
         await counterValue('mcp.service.observed', { 'service.status': 'stopped' })
-      ).to.equal(1)
+      ).to.equal(before + 1)
     })
 
     it('records reaching Running and later stopping as separate milestones', async () => {
@@ -342,8 +348,21 @@ describe('telemetry/inspectResult', () => {
     })
 
     it('bounds an unexpected status rather than passing it through', async () => {
+      // Non-string / unparseable payload -> `unknown`.
       inspectResult('order_asset', {}, envelope('order_asset', { status: 12345 }))
       expect(await counterValue('mcp.asset.order', { status: 'unknown' })).to.equal(1)
+
+      // An undocumented *string* status must not become a label of its own, or a changed handler
+      // could quietly grow the series set.
+      inspectResult(
+        'order_asset',
+        {},
+        envelope('order_asset', { status: 'some-brand-new-state' })
+      )
+      expect(await counterValue('mcp.asset.order', { status: 'other' })).to.equal(1)
+      expect(
+        await counterValue('mcp.asset.order', { status: 'some-brand-new-state' })
+      ).to.equal(0)
     })
 
     it('records downloads and fee quotes', async () => {

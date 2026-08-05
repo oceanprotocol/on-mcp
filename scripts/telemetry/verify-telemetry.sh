@@ -14,8 +14,9 @@
 
 set -uo pipefail
 
-cd "$(dirname "$0")/../.."
-REPO_ROOT="$PWD"
+# Guarded: with `set -uo pipefail` (no -e) a failed cd would silently run every check against the
+# caller's directory.
+cd "$(dirname "$0")/../.." || { echo "cannot cd to repo root" >&2; exit 2; }
 
 COMPOSE_FILE="docs/telemetry/docker-compose.telemetry.yml"
 PROM_URL="${PROM_URL:-http://localhost:9090}"
@@ -42,8 +43,15 @@ ok()   { PASS=$((PASS+1)); RESULTS+=("  PASS  $1"); printf '  \033[32mPASS\033[0
 bad()  { FAIL=$((FAIL+1)); RESULTS+=("  FAIL  $1"); printf '  \033[31mFAIL\033[0m  %s\n' "$1"; }
 step() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
 
+BUILD_LOG=$(mktemp -t on-mcp-build.XXXXXX)
+SERVER_LOG=$(mktemp -t on-mcp-server.XXXXXX)
+HEADERS=$(mktemp -t on-mcp-init-headers.XXXXXX)
+INIT_BODY_FILE=$(mktemp -t on-mcp-init-body.XXXXXX)
+
 SERVER_PID=""
 cleanup() {
+  rm -f "$BUILD_LOG" "$SERVER_LOG" "$HEADERS" "$INIT_BODY_FILE"
+
   if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
@@ -82,10 +90,11 @@ wait_for "$GRAFANA_URL/api/health" "Grafana"
 
 # ── 2. build + run the server ───────────────────────────────────────────────────────────────
 step "Building on-mcp"
-if npm run build >/tmp/on-mcp-build.log 2>&1; then
+if npm run build >"$BUILD_LOG" 2>&1; then
   ok "build succeeded"
 else
-  bad "build failed (see /tmp/on-mcp-build.log)"
+  bad "build failed:"
+  tail -20 "$BUILD_LOG" >&2 || true
   exit 1
 fi
 
@@ -99,15 +108,17 @@ export DEPLOYMENT_ENVIRONMENT=verify
 # Export fast so the script does not wait a full minute for the first metric flush.
 export OTEL_METRIC_EXPORT_INTERVAL=5000
 
-node --import ./dist/telemetry/otel.js dist/index.js >/tmp/on-mcp-server.log 2>&1 &
+node --import ./dist/telemetry/otel.js dist/index.js >"$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
+# Any HTTP status counts as "listening" — POSTing `{}` is deliberately not a valid MCP request and
+# returns 400. `curl -f` would treat that as failure and burn the whole retry budget.
 for _ in $(seq 1 45); do
-  if curl -fsS -o /dev/null -X POST "$MCP_URL" -H 'Content-Type: application/json' \
+  if curl -sS -o /dev/null -X POST "$MCP_URL" -H 'Content-Type: application/json' \
       -H 'Accept: application/json, text/event-stream' -d '{}' 2>/dev/null; then break; fi
   if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    bad "server exited during startup (see /tmp/on-mcp-server.log and debug.log)"
-    tail -20 /tmp/on-mcp-server.log || true
+    bad "server exited during startup (see debug.log)"
+    tail -20 "$SERVER_LOG" || true
     exit 1
   fi
   sleep 2
@@ -129,10 +140,9 @@ fi
 # ── 3. drive traffic ────────────────────────────────────────────────────────────────────────
 step "Driving MCP tool calls"
 
-HEADERS=/tmp/on-mcp-init-headers.txt
 INIT_BODY='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"verify-telemetry","version":"1.0.0"}}}'
 
-curl -fsS -D "$HEADERS" -o /tmp/on-mcp-init-body.txt -X POST "$MCP_URL" \
+curl -fsS -D "$HEADERS" -o "$INIT_BODY_FILE" -X POST "$MCP_URL" \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
   -d "$INIT_BODY" >/dev/null 2>&1

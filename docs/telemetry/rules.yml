@@ -1,8 +1,9 @@
 # Recording rules for on-mcp.
 #
-# Heap headroom lives here rather than as a custom gauge in the server: `@opentelemetry/host-metrics`
-# already exports V8 heap used and the heap size limit (the limit reflects
-# `--max-old-space-size=28784`), so a bespoke instrument would only duplicate them.
+# Heap headroom lives here rather than as a custom gauge in the server:
+# `@opentelemetry/instrumentation-runtime-node` already exports V8 heap used and the heap size limit
+# (the limit reflects `--max-old-space-size=28784`), so a bespoke instrument would only duplicate
+# them. (`@opentelemetry/host-metrics` covers process/system memory and CPU — not the V8 heap.)
 
 groups:
   - name: on-mcp-runtime
@@ -29,10 +30,21 @@ groups:
 
       # Escrow blockage seen from inside computeStart / serviceStart — the actionable one, since
       # the user hit it without asking for a check.
+      #
+      # Matches `blocked_*` explicitly rather than `result!="ready"`: the verdict label also carries
+      # `error` (a preflight that could not reach a verdict at all, e.g. an escrow RPC read failed),
+      # and counting those as blockage would blame payment friction for an infrastructure fault.
       - record: ocean_mcp:escrow_gate_block_rate
         expr: |
-          sum(rate(mcp_escrow_preflight_total{caller=~".*_gate", result!="ready"}[30m]))
+          sum(rate(mcp_escrow_preflight_total{caller=~".*_gate", result=~"blocked_.*"}[30m]))
             / clamp_min(sum(rate(mcp_escrow_preflight_total{caller=~".*_gate"}[30m])), 0.0001)
+
+      # Preflights that could not reach a verdict. Both gates swallow their errors and proceed, so
+      # without this an escrow backend that is down is invisible — it looks like reduced traffic.
+      - record: ocean_mcp:escrow_preflight_error_rate
+        expr: |
+          sum(rate(mcp_escrow_preflight_total{result="error"}[30m]))
+            / clamp_min(sum(rate(mcp_escrow_preflight_total[30m])), 0.0001)
 
       # Dataset ordering. `order_asset` is a multi-step state machine, so this is the share of
       # started order flows that reached `complete` rather than stalling after a signature.

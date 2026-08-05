@@ -6,12 +6,18 @@
  * on **spans only**, never as a metric label, where a per-user value would explode Mimir's
  * cardinality (plan §2, §8).
  *
- * The hash is unsalted by deliberate choice. That keeps user identity stable with **zero
- * configuration** — nothing to provision, nothing to keep in sync across restarts or replicas, and
- * no failure mode where a missing secret silently disables the metric. The trade-off, recorded here
- * so it is not rediscovered as a surprise: an unsalted hash over a small input space (IPv4 plus a
+ * The hash is unsalted **by default**, deliberately. That keeps user identity stable with zero
+ * configuration — nothing to provision, nothing to keep in sync across restarts or replicas, and no
+ * failure mode where a missing secret silently disables the metric. The trade-off, recorded here so
+ * it is not rediscovered as a surprise: an unsalted hash over a small input space (IPv4 plus a
  * ~20-value client allowlist) is reversible by brute force, so treat `user.id` as pseudonymous
  * rather than anonymous, and scope access to the telemetry backend accordingly.
+ *
+ * Setting `MCP_TELEMETRY_USER_ID_SALT` opts into a genuinely non-invertible id. It is opt-in rather
+ * than the default because the salt then *defines* identity continuity: it must stay byte-identical
+ * forever and across every replica, and rotating or losing it re-identifies the whole user base as
+ * new. That is a real operational burden, and it is the caller's call whether the privacy gain is
+ * worth it.
  *
  * The source port is deliberately excluded: TCP source ports are per-connection and re-mapped by
  * NAT PAT, so folding one in turns the id into a *connection* id and fragments a single user
@@ -61,8 +67,19 @@ function normalize(value: string): string {
 }
 
 /**
+ * Shortest normalized name allowed to match a known client by *reverse* containment.
+ *
+ * Without this floor, `known.includes(normalized)` matches almost anything: a client calling itself
+ * `c` normalizes to `"c"`, and `'claude-desktop'.includes('c')` is true, so it would be reported as
+ * Claude Desktop. Forward containment (`normalized.includes(known)`) is safe at any length because
+ * the needle is a full allowlist entry.
+ */
+const MIN_REVERSE_MATCH_LENGTH = 4
+
+/**
  * Map a client-supplied name onto the allowlist, or `other`. Matching is substring-based in both
- * directions so `Claude Desktop 1.2` and `claude-desktop` both land on `claude-desktop`.
+ * directions so `Claude Desktop 1.2` and `claude-desktop` both land on `claude-desktop` — but see
+ * `MIN_REVERSE_MATCH_LENGTH` for why the reverse direction is length-gated.
  */
 export function sanitizeClientName(name: string | undefined): string {
   if (!name) return 'unknown'
@@ -70,7 +87,9 @@ export function sanitizeClientName(name: string | undefined): string {
   if (!normalized) return 'unknown'
   const match = KNOWN_CLIENTS.find(
     (known) =>
-      normalized === known || normalized.includes(known) || known.includes(normalized)
+      normalized === known ||
+      normalized.includes(known) ||
+      (normalized.length >= MIN_REVERSE_MATCH_LENGTH && known.includes(normalized))
   )
   return match ?? 'other'
 }
@@ -142,6 +161,9 @@ export function deriveUserId(
   const config = telemetryConfig()
   const parts = [ip, clientName]
   if (config.includePortInUserId && typeof port === 'number') parts.push(String(port))
+  // Prepended, so an operator who later sets a salt gets a completely different id space rather
+  // than one that collides with previously-emitted unsalted ids.
+  if (config.userIdSalt) parts.unshift(config.userIdSalt)
 
   return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 16)
 }

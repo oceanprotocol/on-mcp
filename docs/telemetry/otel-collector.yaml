@@ -18,11 +18,16 @@ receivers:
         endpoint: 0.0.0.0:4317
 
 processors:
-  # Bounds Collector memory before the host OOMs. Tune to the container limit.
+  # Bounds Collector memory before the host OOMs.
+  #
+  # Absolute MiB rather than percentages on purpose: `limit_percentage` is a percentage of the
+  # *container* limit, and the compose service sets none — so it would resolve against total host
+  # memory and effectively never trigger. Raise these together with a `deploy.resources.limits.memory`
+  # if you add one.
   memory_limiter:
     check_interval: 1s
-    limit_percentage: 80
-    spike_limit_percentage: 20
+    limit_mib: 512
+    spike_limit_mib: 128
 
   batch:
     timeout: 10s

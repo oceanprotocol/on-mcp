@@ -54,6 +54,19 @@ async function shutdown(signal: string) {
   isShuttingDown = true
 
   try {
+    // Before the exit, so the final metric batch actually reaches the collector. Telemetry owns no
+    // signal handler of its own precisely so this ordering is explicit rather than a race.
+    //
+    // Imported lazily: a static import would pull the OTel SDK into this module's graph, and the
+    // `--import ./dist/telemetry/otel.js` bootstrap depends on the SDK loading *before* `express`
+    // and `http`. Under `--import` this resolves from the module cache, so it costs nothing.
+    const { shutdownTelemetry } = await import('./telemetry/otel.js')
+    await shutdownTelemetry()
+  } catch (error) {
+    console.error(`[${signal}] Failed to shut down telemetry:`, error)
+  }
+
+  try {
     await getEvmProviderRegistry().destroy()
   } catch (error) {
     console.error(`[${signal}] Failed to destroy EVM provider registry:`, error)
@@ -77,7 +90,10 @@ async function startStdioServer(serverContext: ServerContext) {
 
 async function startSseServer(serverContext: ServerContext) {
   const app = createMcpExpressApp({ host: sseHost })
-  const transports: Record<string, StreamableHTTPServerTransport> = {}
+  // A Map, not an object literal: with `transports[sessionId]` a client sending
+  // `mcp-session-id: constructor` (or any Object.prototype key) gets a truthy "transport" back and
+  // is routed into `handleRequest` on a function. Map has no prototype chain to inherit from.
+  const transports = new Map<string, StreamableHTTPServerTransport>()
 
   const telemetry = telemetryConfig()
   // Without this, `req.ip` behind a reverse proxy is the proxy's address, which would collapse
@@ -104,7 +120,7 @@ async function startSseServer(serverContext: ServerContext) {
       let transport: StreamableHTTPServerTransport
 
       if (sessionId) {
-        const existingTransport = transports[sessionId]
+        const existingTransport = transports.get(sessionId)
         if (!existingTransport) {
           // Never reaches a tool, so it is invisible to mcp.tool.calls — and no session was ever
           // created, so it is invisible to mcp.sessions.* too. A spike here means clients are
@@ -123,7 +139,7 @@ async function startSseServer(serverContext: ServerContext) {
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
-            transports[id] = transport
+            transports.set(id, transport)
             trackedSessionId = id
           }
         })
@@ -131,7 +147,7 @@ async function startSseServer(serverContext: ServerContext) {
         transport.onclose = () => {
           const id = transport.sessionId ?? trackedSessionId
           if (id) {
-            delete transports[id]
+            transports.delete(id)
             // Emits session.duration / tool_calls / distinct_tools / sessions.empty. Idempotent.
             endSession(id)
           }

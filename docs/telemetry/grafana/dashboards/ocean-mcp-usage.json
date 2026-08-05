@@ -1369,7 +1369,7 @@
       },
       "options": {
         "mode": "markdown",
-        "content": "Read top to bottom in the panel to the right:\n\n1. `initializeCompute` \u2014 job priced\n2. `escrow_preflight{caller=\"compute_gate\"}` \u2014 can it be paid for?\n3. `compute.jobs.started` \u2014 actually launched\n\nA large gap at step 2 is payment friction, not disinterest.\n"
+        "content": "Read top to bottom in the panel to the right:\n\n1. `initializeCompute` \u2014 job priced\n2. `escrow_preflight{caller=\"compute_gate\"}` \u2014 can it be paid for?\n3. `escrow_preflight{caller=\"compute_gate\", result=\"ready\"}` \u2014 escrow could back it\n4. `compute.jobs.started` \u2014 actually launched\n\nA large gap between steps 2 and 3 is payment friction, not disinterest. A gap between 3 and 4 means\nescrow was fine and the start failed for another reason.\n"
       }
     },
     {
@@ -2404,8 +2404,8 @@
     {
       "id": 42,
       "type": "timeseries",
-      "title": "HTTP requests to /mcp",
-      "description": "From the auto-instrumented Express/HTTP layer.",
+      "title": "HTTP requests",
+      "description": "All HTTP requests handled by the Express app, by status code. Not filtered to /mcp: http_route is not reliably populated for these, so a filter would risk silently emptying the panel. In practice /mcp is nearly all of it.",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -3577,7 +3577,7 @@
       },
       {
         "current": {},
-        "hide": 0,
+        "hide": 2,
         "includeAll": false,
         "label": "Tempo",
         "multi": false,
@@ -3599,6 +3599,6 @@
   "timezone": "utc",
   "title": "Ocean MCP \u2014 usage",
   "uid": "ocean-mcp-usage",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

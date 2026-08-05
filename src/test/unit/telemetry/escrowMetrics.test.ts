@@ -2,7 +2,11 @@ import { expect } from 'chai'
 import type { ComputeEnvironment } from '@oceanprotocol/lib'
 
 import { NodeClient } from '../../../clients/nodeClient.js'
-import { recordAutoFix, recordPreflight } from '../../../telemetry/escrowMetrics.js'
+import {
+  recordAutoFix,
+  recordPreflight,
+  recordPreflightError
+} from '../../../telemetry/escrowMetrics.js'
 import { serviceEscrowGate } from '../../../tools/serviceTools.js'
 import type { EscrowPreflightResult } from '../../../tools/escrowPreflight.js'
 import { counterValue } from '../../utils/hooks.js'
@@ -74,44 +78,76 @@ describe('telemetry/escrowMetrics', () => {
     })
 
     it('encodes the blocking reason', async () => {
-      recordPreflight({ canStartThisJob: false, reason: 'insufficient_funds' }, 'tool')
-      recordPreflight({ canStartThisJob: false, reason: 'missing_authorization' }, 'tool')
-      recordPreflight({ canStartThisJob: false, reason: 'authorization_limits' }, 'tool')
-
-      for (const reason of [
+      const reasons = [
         'insufficient_funds',
         'missing_authorization',
         'authorization_limits'
-      ]) {
-        expect(
+      ] as const
+      // Baseline first: counters are cumulative for the whole run (see hooks.ts).
+      const before = new Map<string, number>()
+      for (const reason of reasons) {
+        before.set(
+          reason,
           await counterValue('mcp.escrow.preflight', { result: `blocked_${reason}` })
-        ).to.equal(1)
+        )
+      }
+
+      for (const reason of reasons) {
+        recordPreflight({ canStartThisJob: false, reason }, 'tool')
+      }
+
+      for (const reason of reasons) {
+        expect(
+          await counterValue('mcp.escrow.preflight', { result: `blocked_${reason}` }),
+          reason
+        ).to.equal((before.get(reason) ?? 0) + 1)
       }
     })
 
     it('falls back to a bounded value when the reason is missing', async () => {
+      const before = await counterValue('mcp.escrow.preflight', {
+        result: 'blocked_unknown'
+      })
       recordPreflight({ canStartThisJob: false }, 'tool')
       expect(
         await counterValue('mcp.escrow.preflight', { result: 'blocked_unknown' })
-      ).to.equal(1)
+      ).to.equal(before + 1)
+    })
+
+    it('records a bounded error result when a preflight cannot reach a verdict', async () => {
+      // Both gates swallow RPC failures and proceed, so without this a broken escrow backend looks
+      // like no preflight traffic rather than a problem — biasing the block-rate denominator.
+      const before = await counterValue('mcp.escrow.preflight', {
+        result: 'error',
+        caller: 'compute_gate'
+      })
+      recordPreflightError('compute_gate')
+      expect(
+        await counterValue('mcp.escrow.preflight', {
+          result: 'error',
+          caller: 'compute_gate'
+        })
+      ).to.equal(before + 1)
     })
 
     it('separates the tool from the two implicit gates', async () => {
       // The whole point of instrumenting the function rather than the tool: most preflights are
       // gates inside computeStart/serviceStart and would otherwise be invisible.
-      recordPreflight({ canStartThisJob: true }, 'compute_gate')
-      recordPreflight({ canStartThisJob: true }, 'service_gate')
-      recordPreflight({ canStartThisJob: true }, 'tool_recheck')
+      const callers = ['compute_gate', 'service_gate', 'tool_recheck'] as const
+      const before = new Map<string, number>()
+      for (const caller of callers) {
+        before.set(caller, await counterValue('mcp.escrow.preflight', { caller }))
+      }
 
-      expect(
-        await counterValue('mcp.escrow.preflight', { caller: 'compute_gate' })
-      ).to.equal(1)
-      expect(
-        await counterValue('mcp.escrow.preflight', { caller: 'service_gate' })
-      ).to.equal(1)
-      expect(
-        await counterValue('mcp.escrow.preflight', { caller: 'tool_recheck' })
-      ).to.equal(1)
+      for (const caller of callers) {
+        recordPreflight({ canStartThisJob: true }, caller)
+      }
+
+      for (const caller of callers) {
+        expect(await counterValue('mcp.escrow.preflight', { caller }), caller).to.equal(
+          (before.get(caller) ?? 0) + 1
+        )
+      }
     })
 
     it('never throws — a telemetry failure must not turn a proceed into a block', () => {
@@ -128,8 +164,21 @@ describe('telemetry/escrowMetrics', () => {
         { action: 'authorize', note: 'cannot be raised automatically' }
       ])
 
-      expect(await counterValue('mcp.escrow.autofix', { outcome: 'deposit' })).to.equal(1)
-      expect(await counterValue('mcp.escrow.autofix', { outcome: 'noop' })).to.equal(1)
+      const beforeDeposit = await counterValue('mcp.escrow.autofix', {
+        outcome: 'deposit'
+      })
+      const beforeNoop = await counterValue('mcp.escrow.autofix', { outcome: 'noop' })
+      recordAutoFix([
+        { action: 'deposit', tx: '0xdef' },
+        { action: 'authorize', note: 'still cannot be raised' }
+      ])
+      expect(await counterValue('mcp.escrow.autofix', { outcome: 'deposit' })).to.equal(
+        beforeDeposit + 1
+      )
+      expect(await counterValue('mcp.escrow.autofix', { outcome: 'noop' })).to.equal(
+        beforeNoop + 1
+      )
+      // A `note`-only action must never be attributed as a real authorize.
       expect(await counterValue('mcp.escrow.autofix', { outcome: 'authorize' })).to.equal(
         0
       )

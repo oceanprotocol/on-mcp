@@ -49,6 +49,23 @@ export function recordPreflight(result: PreflightVerdict, caller: PreflightCalle
 }
 
 /**
+ * A preflight that could not reach a verdict — an RPC read failed, the escrow contract was
+ * unreachable, an address was malformed.
+ *
+ * Without this the counter is silently biased: both gates swallow their errors and proceed
+ * ("best-effort, let the node decide"), so an escrow backend that is down looks like *no preflight
+ * traffic at all* rather than a problem. `result="error"` keeps the denominator honest, which is
+ * what makes `ocean_mcp:escrow_gate_block_rate` trustworthy.
+ */
+export function recordPreflightError(caller: PreflightCaller): void {
+  try {
+    escrowPreflight.add(1, { result: 'error', caller })
+  } catch {
+    // no-op
+  }
+}
+
+/**
  * Auto-fix outcomes, as their own counter rather than an `auto_fixed` boolean on the verdict.
  *
  * Two reasons. The verdict is recorded inside `runEscrowPreflight`, which returns *before* auto-fix

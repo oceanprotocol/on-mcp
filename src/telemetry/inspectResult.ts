@@ -193,6 +193,13 @@ const SERVICE_LIFECYCLE_ACTIONS: Record<string, string> = {
   getServices: 'list'
 }
 
+/**
+ * The `status` values `order_asset` actually returns (`assets.ts`). Enforced rather than trusted:
+ * this label is derived from a result payload, and the file's invariant is that every metric label
+ * is bounded at the point of use, not by inspection of the producer.
+ */
+const ASSET_ORDER_STATUSES = new Set(['needs_broadcast', 'waiting', 'complete'])
+
 /** Bucket names, never bucket contents: no bucket id, file name or object key is recorded. */
 const STORAGE_ACTIONS: Record<string, string> = {
   createPersistentStorageBucket: 'create_bucket',
@@ -284,7 +291,13 @@ function inspect(name: string, args: any, res: unknown): void {
       // bounded enum from the handler, so it gives us drop-off *inside* one tool — how many order
       // flows reach `complete` versus stall after a signature.
       const result = payload(res)
-      const status = typeof result?.status === 'string' ? result.status : 'unknown'
+      const raw = result?.status
+      const status =
+        typeof raw !== 'string'
+          ? 'unknown' // no parseable payload at all
+          : ASSET_ORDER_STATUSES.has(raw)
+            ? raw
+            : 'other' // a status the handler does not document — bounded, not forwarded
       assetOrder.add(1, {
         status: isError ? 'error' : status,
         ...(typeof args?.chainId === 'number' ? { 'chain.id': args.chainId } : {})

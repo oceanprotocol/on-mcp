@@ -7,6 +7,7 @@ import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
 import {
   recordAutoFix,
   recordPreflight,
+  recordPreflightError,
   type PreflightCaller
 } from '../telemetry/escrowMetrics.js'
 import { stringifyError, textContent } from '../utils/format.js'
@@ -131,20 +132,30 @@ export async function runEscrowPreflight(params: {
   const signer = getVoidSigner(evmRegistry, chainId, payer) as never
   const escrow = new EscrowContract(escrowAddress, signer, chainId)
 
-  const fundsRaw = await escrow.getUserFunds(payer, token)
-  const available = BigInt(fundsRaw[0].toString())
+  let available: bigint
+  let authorization: EscrowAuthorizationView | null
+  try {
+    const fundsRaw = await escrow.getUserFunds(payer, token)
+    available = BigInt(fundsRaw[0].toString())
 
-  const auths = await escrow.getAuthorizations(token, payer, payee)
-  const auth = auths && auths.length > 0 ? auths[0] : null
-  const authorization: EscrowAuthorizationView | null = auth
-    ? {
-        maxLockedAmount: BigInt(auth[1].toString()),
-        currentLockedAmount: BigInt(auth[2].toString()),
-        maxLockSeconds: BigInt(auth[3].toString()),
-        maxLockCounts: BigInt(auth[4].toString()),
-        currentLocks: BigInt(auth[5].toString())
-      }
-    : null
+    const auths = await escrow.getAuthorizations(token, payer, payee)
+    const auth = auths && auths.length > 0 ? auths[0] : null
+    authorization = auth
+      ? {
+          maxLockedAmount: BigInt(auth[1].toString()),
+          currentLockedAmount: BigInt(auth[2].toString()),
+          maxLockSeconds: BigInt(auth[3].toString()),
+          maxLockCounts: BigInt(auth[4].toString()),
+          currentLocks: BigInt(auth[5].toString())
+        }
+      : null
+  } catch (error) {
+    // Both gates swallow their errors and proceed ("let the node decide"), so without this a broken
+    // escrow RPC looks like *no preflight traffic* rather than a problem — silently biasing the
+    // block-rate denominator. Record and rethrow; the callers' behaviour is unchanged.
+    recordPreflightError(params.caller ?? 'tool')
+    throw error
+  }
 
   const result = evaluateEscrowReadiness({
     payer,

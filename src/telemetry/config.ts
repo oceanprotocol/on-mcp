@@ -11,12 +11,26 @@ export type TelemetryConfig = {
   enabled: boolean
   /** Why telemetry is off, for a one-line startup log. `undefined` when enabled. */
   disabledReason?: string
+  /**
+   * Machine-readable form of `disabledReason`. Callers branch on this rather than substring-matching
+   * the human text — `stdio` is the normal default and must stay silent at startup.
+   */
+  disabledBy?: 'transport' | 'endpoint' | 'switch'
   endpoint?: string
   serviceName: string
   serviceVersion: string
   environment: string
   /** Experimental: fold the client source port into `user.id` (plan §2 — leave off). */
   includePortInUserId: boolean
+  /**
+   * Optional secret mixed into `user.id`. **Absent by default, and the default is unsalted.**
+   *
+   * Unsalted keeps identity stable with zero configuration, at the cost of being brute-forceable
+   * back to an IP (small input space). Setting this makes `user.id` genuinely non-invertible — but
+   * it then becomes a value you must keep stable forever and identical across replicas, because it
+   * *defines* identity continuity. Rotating or losing it re-identifies every user as new.
+   */
+  userIdSalt?: string
   /**
    * Express `trust proxy` setting, so `req.ip` is the real client behind a reverse proxy.
    *
@@ -32,6 +46,20 @@ export type TelemetryConfig = {
 function readBool(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === '') return fallback
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase())
+}
+
+/**
+ * Positive integer, or the fallback.
+ *
+ * `Number(env.X ?? d)` is not equivalent: an unset var is fine, but `X=""` yields `0` and `X=abc`
+ * yields `NaN`. Both then reach an OTel interval as a busy-loop or an immediate throw, and neither
+ * is what the operator meant by a typo.
+ */
+export function readPositiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === '') return fallback
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return parsed
 }
 
 /**
@@ -80,17 +108,24 @@ export function loadTelemetryConfig(
     serviceVersion: env.OTEL_SERVICE_VERSION ?? '0.0.1',
     environment: env.DEPLOYMENT_ENVIRONMENT ?? env.NODE_ENV ?? 'development',
     includePortInUserId: readBool(env.MCP_TELEMETRY_USER_ID_INCLUDE_PORT, false),
+    userIdSalt: env.MCP_TELEMETRY_USER_ID_SALT?.trim() || undefined,
     trustProxy: parseTrustProxy(env.TRUST_PROXY),
-    healthIntervalMs: Number(env.MCP_TELEMETRY_HEALTH_INTERVAL_MS ?? 30_000)
+    healthIntervalMs: readPositiveInt(env.MCP_TELEMETRY_HEALTH_INTERVAL_MS, 30_000)
   }
 
   if (mode === 'false' || mode === 'off' || mode === '0') {
-    return { ...base, enabled: false, disabledReason: 'MCP_TELEMETRY_ENABLED is off' }
+    return {
+      ...base,
+      enabled: false,
+      disabledBy: 'switch',
+      disabledReason: 'MCP_TELEMETRY_ENABLED is off'
+    }
   }
   if (transport !== 'sse') {
     return {
       ...base,
       enabled: false,
+      disabledBy: 'transport',
       disabledReason: `transport is "${transport}", telemetry is SSE-only`
     }
   }
@@ -98,6 +133,7 @@ export function loadTelemetryConfig(
     return {
       ...base,
       enabled: false,
+      disabledBy: 'endpoint',
       disabledReason: 'OTEL_EXPORTER_OTLP_ENDPOINT is not set'
     }
   }

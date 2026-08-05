@@ -20,7 +20,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-GRAFANA_URL="${GRAFANA_URL:-http://localhost:3001}"
+# Exported, not just assigned: the final `node -e` block reads it from `process.env`.
+export GRAFANA_URL="${GRAFANA_URL:-http://localhost:3001}"
 DASHBOARD_FILE="${DASHBOARD_FILE:-docs/telemetry/grafana/dashboards/ocean-mcp-usage.json}"
 
 if [ ! -f "$DASHBOARD_FILE" ]; then

@@ -162,6 +162,21 @@ describe('telemetry/instrumentTools', () => {
   })
 
   it('never puts raw arguments or messages on metric labels', async () => {
+    // Drive both paths here rather than relying on earlier tests having run: `error.type` only
+    // appears on the failure path, so a success-only run would assert a smaller key set and pass
+    // vacuously.
+    const { server, tools } = harness()
+    server.registerTool('get_doc', {}, () => ok())
+    server.registerTool('node_status', {}, (): ToolResult => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:8000')
+    })
+    await tools.get('get_doc')!({ did: 'did:op:secret', chainId: 8453 }, EXTRA)
+    try {
+      await tools.get('node_status')!({ privateKey: '0xdeadbeef' }, EXTRA)
+    } catch {
+      // expected — the wrapper re-throws
+    }
+
     const keys = await attributeKeys('mcp.tool.calls')
     expect(keys.sort()).to.deep.equal([
       'error.type',

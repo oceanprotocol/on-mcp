@@ -53,7 +53,16 @@ export function startSession(
   if (sessions.size >= MAX_TRACKED_SESSIONS) {
     // Drop the oldest insertion; Map preserves insertion order.
     const oldest = sessions.keys().next().value
-    if (oldest !== undefined) sessions.delete(oldest)
+    if (oldest !== undefined) {
+      const evicted = sessions.get(oldest)
+      sessions.delete(oldest)
+      // The gauge must come back down, or eviction leaks it upward forever and
+      // `mcp.sessions.active` drifts past reality with no way to recover short of a restart.
+      // End-of-life histograms are deliberately NOT recorded: an evicted session's transport is
+      // still open, so its duration and call count are unknown, and inventing them would poison
+      // the percentiles.
+      if (evicted) sessionsActive.add(-1, { 'client.name': evicted.clientName })
+    }
   }
 
   const meta: SessionMeta = {

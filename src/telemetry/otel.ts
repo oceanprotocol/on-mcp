@@ -19,7 +19,7 @@ import { RuntimeNodeInstrumentation } from '@opentelemetry/instrumentation-runti
 import { HostMetrics } from '@opentelemetry/host-metrics'
 import { randomUUID } from 'node:crypto'
 
-import { telemetryConfig, type TelemetryConfig } from './config.js'
+import { readPositiveInt, telemetryConfig, type TelemetryConfig } from './config.js'
 import { telemetryLog } from './log.js'
 
 let sdk: NodeSDK | undefined
@@ -35,8 +35,8 @@ export function initTelemetry(
 
   if (!config.enabled) {
     // Silent on the stdio path: that is the default mode, not a misconfiguration worth logging
-    // on every local invocation.
-    if (config.disabledReason && !config.disabledReason.includes('SSE-only')) {
+    // on every local invocation. Keyed off the discriminator rather than the message text.
+    if (config.disabledReason && config.disabledBy !== 'transport') {
       telemetryLog(`disabled — ${config.disabledReason}`)
     }
     return config
@@ -55,7 +55,7 @@ export function initTelemetry(
       traceExporter: new OTLPTraceExporter(),
       metricReader: new PeriodicExportingMetricReader({
         exporter: new OTLPMetricExporter(),
-        exportIntervalMillis: Number(env.OTEL_METRIC_EXPORT_INTERVAL ?? 60_000)
+        exportIntervalMillis: readPositiveInt(env.OTEL_METRIC_EXPORT_INTERVAL, 60_000)
       }),
       instrumentations: [
         new HttpInstrumentation({
@@ -79,14 +79,10 @@ export function initTelemetry(
       `enabled — exporting to ${config.endpoint} as service.name=${config.serviceName}`
     )
 
-    const stop = () => {
-      sdk
-        ?.shutdown()
-        .catch((error) => telemetryLog('shutdown failed', error))
-        .finally(() => undefined)
-    }
-    process.once('SIGTERM', stop)
-    process.once('SIGINT', stop)
+    // No signal handlers here on purpose. `index.ts` already owns SIGINT/SIGTERM and calls
+    // `process.exit(0)`, so a handler here would start an async flush that the exit kills mid-way —
+    // losing exactly the final batch of metrics you want after a deploy. Instead `index.ts` awaits
+    // `shutdownTelemetry()` before exiting, which makes the ordering deterministic.
   } catch (error) {
     // A telemetry failure must never take the MCP server down.
     telemetryLog('failed to initialize — continuing without telemetry', error)

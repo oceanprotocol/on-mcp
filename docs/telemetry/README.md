@@ -34,7 +34,7 @@ already redirects into `debug.log`.
 
 ### Data path
 
-```
+```text
                     OTLP/HTTP :4318
 on-mcp (SSE) ─────────────────────────►  OTel Collector
   │                                          │
@@ -117,9 +117,15 @@ Three of these carry caveats worth reading before you trust a panel:
 
 **`mcp.asset.order` counts step transitions, not orders.** `order_asset` is a multi-step state
 machine: it returns an unsigned transaction, the caller signs and broadcasts it, then calls back
-with `state` + `lastTxHash`. Its `status` field (`needs_broadcast` / `waiting` / `complete`, plus
-`error` when the tool throws) is therefore an **in-tool funnel** — the ratio of `complete` to
-`needs_broadcast` is how many order flows finish versus stall after a signature.
+with `state` + `lastTxHash`. Its `status` field is therefore an **in-tool funnel** — the ratio of
+`complete` to `needs_broadcast` is how many order flows finish versus stall after a signature.
+
+Values: `needs_broadcast`, `waiting`, `complete` (from the handler); `error` when the tool throws;
+`unknown` when the result had no parseable payload; and `other` for any status string the handler
+does not document. The last two are bounding, not behaviour — this label is derived from a result
+payload, and the invariant is that every label is bounded at the point of use rather than by trusting
+the producer. A non-zero `other` means the handler grew a state the telemetry map has not caught up
+with.
 
 **`mcp.escrow.tx_built` is intent, not settlement.** `escrow_deposit`, `escrow_withdraw` and
 `escrow_authorize` build an *unsigned* transaction and never broadcast. Settlement happens later
@@ -208,6 +214,23 @@ make the paid-compute and service funnels look like a total drop-off at the paym
 **`caller=~".*_gate"` is the actionable series** — those users hit escrow friction without asking
 for a check.
 
+The `result` label takes one of:
+
+| `result` | Meaning |
+|---|---|
+| `ready` | `canStartThisJob` was true — the node would accept the lock |
+| `blocked_insufficient_funds` | Not enough deposited |
+| `blocked_missing_authorization` | No authorization for this payee |
+| `blocked_authorization_limits` | Authorization exists but is below the per-job minimum |
+| `blocked_unknown` | Blocked with no reason set (should not happen; bounded defensively) |
+| `error` | **No verdict reached** — an escrow RPC read failed, the contract was unreachable, an address was malformed |
+
+`error` exists because both gates deliberately swallow their failures and proceed ("let the node
+decide"). Without it, an escrow backend that is down looks like *reduced preflight traffic* rather
+than a fault. It is therefore excluded from `ocean_mcp:escrow_gate_block_rate` — counting it as
+blockage would blame payment friction for an infrastructure problem — and surfaced separately as
+`ocean_mcp:escrow_preflight_error_rate`.
+
 ---
 
 ## B. Configure the server to emit data
@@ -217,8 +240,10 @@ for a check.
 | Variable | Default | Purpose |
 |---|---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | *(unset)* | Collector endpoint. **Unset → telemetry off.** |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | *(unset)* | Metrics-only endpoint; accepted as a fallback when the one above is unset |
 | `OTEL_EXPORTER_OTLP_HEADERS` | — | Auth headers, if exporting past a Collector |
 | `MCP_TELEMETRY_ENABLED` | `auto` | `auto` = on when SSE + endpoint set; `false` = hard off |
+| `MCP_TELEMETRY_USER_ID_SALT` | *(unset)* | Optional. Makes `user.id` non-invertible — see [privacy](#g-privacy-and-data-handling) |
 | `MCP_TELEMETRY_USER_ID_INCLUDE_PORT` | `0` | Experimental; leave off |
 | `MCP_TELEMETRY_HEALTH_INTERVAL_MS` | `30000` | Health gauge sampling |
 | `OTEL_SERVICE_NAME` | `ocean-mcp` | Resource attribute |
@@ -303,7 +328,7 @@ grep telemetry debug.log
 
 Other forms you may see:
 
-```
+```text
 [telemetry] disabled — OTEL_EXPORTER_OTLP_ENDPOINT is not set
 [telemetry] disabled — MCP_TELEMETRY_ENABLED is off
 ```
@@ -328,6 +353,10 @@ docker compose -f docs/telemetry/docker-compose.telemetry.yml up -d
 
 Brings up OTel Collector (`:4318`), Prometheus (`:9090`), Tempo (`:3200`) and Grafana (`:3001`),
 with both datasources **and** the dashboard provisioned on boot. No manual setup.
+
+A fifth service, `tempo-init`, runs once and exits — it chowns the Tempo volume so the non-root
+Tempo container (uid 10001) can create `/var/tempo/{wal,blocks}`. Seeing it as `Exited (0)` in
+`docker compose ps` is correct.
 
 Grafana is on **3001**, not its usual 3000, because the MCP server's default `MCP_PORT` is 3000.
 
@@ -450,7 +479,7 @@ Time range and refresh are the standard Grafana controls at the top right. Panel
 It brings up the stack, builds and runs the server in SSE mode, drives real MCP tool calls over
 Streamable HTTP, waits for export, then asserts on Prometheus and Tempo. Expected output:
 
-```
+```text
 ==> Waiting for backends
   PASS  Prometheus is up
   PASS  Tempo is up
@@ -473,6 +502,8 @@ Streamable HTTP, waits for export, then asserts on Prometheus and Tempo. Expecte
   PASS  tool duration histogram has samples
   PASS  user_id is NOT a metric label (cardinality guard)
   PASS  zero-result docs search was recorded
+  PASS  activation latency was recorded (= 1)
+  PASS  dead session id was counted as a transport rejection (= 1)
 
 ==> Checking Tempo
   PASS  found 4 tool.* trace(s) in Tempo
@@ -480,7 +511,7 @@ Streamable HTTP, waits for export, then asserts on Prometheus and Tempo. Expecte
 ==> Checking Grafana
   PASS  dashboard ocean-mcp-usage is provisioned
 
-12 passed, 0 failed
+19 passed, 0 failed
 ```
 
 Exits non-zero if anything fails. Useful flags:
@@ -536,6 +567,15 @@ that suggests sessions are being evicted or the process is restarting unexpected
 **`mcp_asset_order_total` shows `needs_broadcast` but almost no `complete`.** Users are starting
 order flows and abandoning them mid-signature. The tool never signs or broadcasts, so the drop-off
 is in the client's signing step, not on the server.
+
+**`ocean_mcp:escrow_preflight_error_rate` is climbing.** Preflights cannot reach a verdict — an
+escrow RPC endpoint is failing or the contract address is wrong for that chain. Both gates proceed
+regardless, so the user-visible symptom is compute/service starts failing *later* at the node
+instead of being refused up front.
+
+**`mcp_asset_order_total{status="other"}` is non-zero.** `order_asset` returned a status the
+telemetry map does not know about — the handler grew a state. Add it to `ASSET_ORDER_STATUSES` in
+`src/telemetry/inspectResult.ts`.
 
 **`mcp_escrow_tx_built_total` is high but escrow never gets funded.** Expected and not a bug: these
 tools build unsigned transactions. Settlement happens through `broadcast_transaction`, which is
@@ -599,25 +639,52 @@ attribute outside the allowlist reaches a span, and the scrub processor in `otel
 
 ### How `user.id` is derived
 
-```
-user.id = sha256(client_ip + "|" + sanitized_client_name).hex[0..16]
+```text
+user.id = sha256([salt + "|"] + client_ip + "|" + sanitized_client_name).hex[0..16]
 ```
 
 The raw IP is used to compute it and immediately discarded — never stored, logged, or exported.
 No id is produced when the client IP cannot be determined, and that session simply contributes
 nothing to the estimate.
 
-**The hash is unsalted, and that is a deliberate trade.** It buys zero-configuration stability:
-identity holds across restarts and replicas with no secret to manage. It costs
+**The hash is unsalted by default, and that is a deliberate trade.** It buys zero-configuration
+stability: identity holds across restarts and replicas with no secret to manage. It costs
 non-invertibility — the input space is IPv4 (2³²) times a ~20-value client allowlist, so the full
 table is computable, and someone holding only the telemetry could map ids back to IP addresses.
 
-Treat `user.id` as **pseudonymous, not anonymous**:
+By default, treat `user.id` as **pseudonymous, not anonymous**:
 
 - Scope Prometheus/Tempo access the way you would scope access to IP logs.
 - Do not publish dashboards or trace exports containing `user.id` outside that boundary.
-- If your threat model later requires genuine anonymity, re-introduce a stable secret salt into
-  `deriveUserId` — that is the only change needed, and everything downstream keeps working.
+
+### Opting into a non-invertible id
+
+Set `MCP_TELEMETRY_USER_ID_SALT` and the salt is mixed into the hash, making it infeasible to
+brute-force back to an IP:
+
+```bash
+MCP_TELEMETRY_USER_ID_SALT=$(openssl rand -hex 32)
+```
+
+It is opt-in rather than the default because the salt then **defines identity continuity**:
+
+- It must stay byte-identical **forever** and across **every replica**. Store it in your secret
+  manager, not in an image or a compose file that gets regenerated.
+- Rotating or losing it re-identifies your entire user base as new, so DAU/WAU/MAU spike for one
+  window. Rotate at a window boundary and annotate the dashboard.
+- It changes the id space, so salted and unsalted ids never collide — expect a one-window
+  discontinuity when you first enable it.
+- Do **not** derive it from `PRIVATE_KEY`: that key is optional and randomly generated per boot when
+  unset (`index.ts`), which would silently reset user identity on every restart.
+
+Everything else — the HLL, the gauge, the spans, the dashboard — is unaffected either way.
+
+### Retention
+
+Spans carry `user.id`, so their lifetime bounds how long a re-identifiable record exists. The local
+stack sets **24h** (`compaction.block_retention` in `tempo.yaml`); keep that value and this note in
+step whenever you change either. Metrics carry no `user.id` and follow your Prometheus/Mimir
+retention.
 
 ### Client-supplied labels
 

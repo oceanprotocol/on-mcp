@@ -1,6 +1,7 @@
 import { expect } from 'chai'
 import { createHash } from 'node:crypto'
 
+import { loadTelemetryConfig } from '../../../telemetry/config.js'
 import {
   deriveUserId,
   extractClientIp,
@@ -57,10 +58,20 @@ describe('telemetry/identity', () => {
       expect(deriveUserId('198.51.100.9', 'cursor')).to.equal(expected)
     })
 
-    it('folds in the source port only when explicitly enabled', () => {
-      // Default is off: a port would make this a connection id, not a user id.
+    it('ignores the source port unless the opt-in is set', () => {
+      // Default is off: a port would make this a connection id, not a user id. The enabled branch
+      // is covered by config.test.ts (`includePortInUserId`) — `deriveUserId` reads the memoized
+      // process config, so it cannot be flipped per-call here.
       const withoutPort = deriveUserId('198.51.100.9', 'cursor')
       expect(deriveUserId('198.51.100.9', 'cursor', 54321)).to.equal(withoutPort)
+      expect(loadTelemetryConfig({} as NodeJS.ProcessEnv).includePortInUserId).to.equal(
+        false
+      )
+      expect(
+        loadTelemetryConfig({
+          MCP_TELEMETRY_USER_ID_INCLUDE_PORT: '1'
+        } as NodeJS.ProcessEnv).includePortInUserId
+      ).to.equal(true)
     })
   })
 
@@ -73,6 +84,18 @@ describe('telemetry/identity', () => {
 
     it('buckets an unknown client as other', () => {
       expect(sanitizeClientName('SomeRandomAgent')).to.equal('other')
+    })
+
+    it('does not let a very short name match a known client by substring', () => {
+      // Reverse containment is length-gated: 'claude-desktop'.includes('c') is true, so without the
+      // floor a client calling itself "c" would be reported as Claude Desktop.
+      expect(sanitizeClientName('c')).to.equal('other')
+      expect(sanitizeClientName('cu')).to.equal('other')
+      expect(sanitizeClientName('ze')).to.equal('other')
+      // Long enough to be meaningful, and a genuine prefix of an allowlist entry.
+      expect(sanitizeClientName('curs')).to.equal('cursor')
+      // An exact allowlist entry still matches regardless of length.
+      expect(sanitizeClientName('zed')).to.equal('zed')
     })
 
     it('bounds a hostile client name instead of passing it through as a label', () => {

@@ -1,6 +1,10 @@
 import { expect } from 'chai'
 
-import { loadTelemetryConfig, parseTrustProxy } from '../../../telemetry/config.js'
+import {
+  loadTelemetryConfig,
+  parseTrustProxy,
+  readPositiveInt
+} from '../../../telemetry/config.js'
 
 const SSE_ENV = {
   MCP_TRANSPORT: 'sse',
@@ -34,10 +38,64 @@ describe('telemetry/config', () => {
     expect(config.disabledReason).to.contain('OTEL_EXPORTER_OTLP_ENDPOINT')
   })
 
-  it('honours a hard off switch', () => {
-    const config = loadTelemetryConfig({ ...SSE_ENV, MCP_TELEMETRY_ENABLED: 'false' })
-    expect(config.enabled).to.equal(false)
-    expect(config.disabledReason).to.contain('MCP_TELEMETRY_ENABLED')
+  it('accepts the metrics-specific endpoint as a fallback', () => {
+    const config = loadTelemetryConfig({
+      MCP_TRANSPORT: 'sse',
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: 'http://collector:4318/v1/metrics'
+    } as NodeJS.ProcessEnv)
+    expect(config.enabled).to.equal(true)
+  })
+
+  it('honours every hard off switch spelling', () => {
+    for (const value of ['false', 'off', '0']) {
+      const config = loadTelemetryConfig({ ...SSE_ENV, MCP_TELEMETRY_ENABLED: value })
+      expect(config.enabled, value).to.equal(false)
+      expect(config.disabledBy, value).to.equal('switch')
+      expect(config.disabledReason, value).to.contain('MCP_TELEMETRY_ENABLED')
+    }
+  })
+
+  it('tags why telemetry is off so callers need not match on message text', () => {
+    expect(
+      loadTelemetryConfig({ ...SSE_ENV, MCP_TRANSPORT: 'stdio' }).disabledBy
+    ).to.equal('transport')
+    expect(
+      loadTelemetryConfig({ MCP_TRANSPORT: 'sse' } as NodeJS.ProcessEnv).disabledBy
+    ).to.equal('endpoint')
+    expect(loadTelemetryConfig(SSE_ENV).disabledBy).to.equal(undefined)
+  })
+
+  it('is unsalted by default and accepts an opt-in salt', () => {
+    expect(loadTelemetryConfig(SSE_ENV).userIdSalt).to.equal(undefined)
+    // Whitespace-only must not count as configured, or it would look enabled while changing nothing.
+    expect(
+      loadTelemetryConfig({ ...SSE_ENV, MCP_TELEMETRY_USER_ID_SALT: '   ' }).userIdSalt
+    ).to.equal(undefined)
+    expect(
+      loadTelemetryConfig({ ...SSE_ENV, MCP_TELEMETRY_USER_ID_SALT: 'abc123' }).userIdSalt
+    ).to.equal('abc123')
+  })
+
+  describe('readPositiveInt', () => {
+    it('rejects the values Number() would silently mangle', () => {
+      // `Number('')` is 0 and `Number('abc')` is NaN — both reach an OTel interval as a busy loop
+      // or an immediate throw.
+      expect(readPositiveInt(undefined, 30_000)).to.equal(30_000)
+      expect(readPositiveInt('', 30_000)).to.equal(30_000)
+      expect(readPositiveInt('   ', 30_000)).to.equal(30_000)
+      expect(readPositiveInt('abc', 30_000)).to.equal(30_000)
+      expect(readPositiveInt('0', 30_000)).to.equal(30_000)
+      expect(readPositiveInt('-5', 30_000)).to.equal(30_000)
+    })
+
+    it('accepts a positive value', () => {
+      expect(readPositiveInt('5000', 30_000)).to.equal(5000)
+      expect(loadTelemetryConfig(SSE_ENV).healthIntervalMs).to.equal(30_000)
+      expect(
+        loadTelemetryConfig({ ...SSE_ENV, MCP_TELEMETRY_HEALTH_INTERVAL_MS: 'nope' })
+          .healthIntervalMs
+      ).to.equal(30_000)
+    })
   })
 
   it('excludes the source port from user ids by default', () => {
