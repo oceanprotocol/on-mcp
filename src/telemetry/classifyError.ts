@@ -1,6 +1,6 @@
 /**
  * Maps any failure — a thrown error or an `{ isError: true }` tool result — onto a **bounded**
- * enum (plan §2 "Error taxonomy").
+ * enum.
  *
  * The message is read here to classify and then **discarded**. It is never returned, never
  * attached to a span, and never used as a metric attribute: messages carry DIDs, addresses and

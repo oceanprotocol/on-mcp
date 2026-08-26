@@ -1,7 +1,7 @@
 /**
  * Escrow-preflight metrics, recorded at the **function** layer rather than the tool layer.
  *
- * `runEscrowPreflight` has three call sites and only one of them is a tool (plan §0.1d):
+ * `runEscrowPreflight` has three call sites and only one of them is a tool:
  *
  *   | call site                                            | caller          |
  *   |------------------------------------------------------|-----------------|

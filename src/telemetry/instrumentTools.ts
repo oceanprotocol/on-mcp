@@ -4,7 +4,7 @@
  * Monkeypatching `registerTool` on the per-session `McpServer` is preferred over editing ~92 call
  * sites: it cannot be forgotten by a new tool, and it keeps telemetry out of the domain code
  * entirely. `wrapMcpServer` must run **between** `new McpServer()` and `registerTools()`, which is
- * what the `onCreated` hook in `createServer` exists for (plan §3.6).
+ * what the `onCreated` hook in `createServer` exists for.
  *
  * Privacy invariant enforced here: the only span attributes ever set are `tool.name`,
  * `tool.category`, `session.id`, `user.id` and `status`. Arguments are read (for `chainId` and the
@@ -33,7 +33,7 @@ export type SessionMetaProvider = () => SessionMeta | undefined
 /**
  * `serviceStatus{waitForRunning:true}` blocks for up to `MAX_WAIT_FOR_RUNNING_SECONDS` by design
  * (`serviceTools.ts:842-854`). Tagging those calls keeps the deliberate wait out of the latency
- * percentiles for everything else — dashboards filter `waited="false"` (plan §0.1c).
+ * percentiles for everything else — dashboards filter `waited="false"`.
  */
 function waitedAttribute(name: string, args: any): { waited: boolean } | undefined {
   if (name !== 'serviceStatus') return undefined
@@ -99,7 +99,7 @@ function wrapTools(server: McpServer, getSessionMeta: SessionMetaProvider): void
         span.setAttribute('tool.name', name)
         span.setAttribute('tool.category', category)
         if (extra?.sessionId) span.setAttribute('session.id', extra.sessionId)
-        // `user.id` is span-only — as a metric label it would be a cardinality bomb (plan §8).
+        // `user.id` is span-only — as a metric label it would be a cardinality bomb.
         if (meta?.userId) span.setAttribute('user.id', meta.userId)
 
         try {

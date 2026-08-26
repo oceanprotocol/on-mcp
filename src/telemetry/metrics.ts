@@ -13,7 +13,7 @@ import { metrics, type Attributes } from '@opentelemetry/api'
 
 const meter = metrics.getMeter('ocean-mcp', '0.0.1')
 
-/* ── Core usage (plan §2) ───────────────────────────────────────────────────────────────── */
+/* ── Core usage ───────────────────────────────────────────────────────────────── */
 
 export const toolCalls = meter.createCounter('mcp.tool.calls', {
   description: 'Tool invocations, by tool, category, and outcome',
@@ -81,7 +81,7 @@ export const promptGets = meter.createCounter('mcp.prompt.gets', {
   unit: '{get}'
 })
 
-/* ── Ocean domain (plan §2) ─────────────────────────────────────────────────────────────── */
+/* ── Ocean domain ─────────────────────────────────────────────────────────────── */
 
 export const computeJobsStarted = meter.createCounter('mcp.compute.jobs.started', {
   description: 'Compute jobs started, paid and free',
@@ -176,7 +176,7 @@ export const docsSearch = meter.createCounter('mcp.docs.search', {
   unit: '{search}'
 })
 
-/* ── Service-on-Demand (plan §0.1) ──────────────────────────────────────────────────────── */
+/* ── Service-on-Demand ──────────────────────────────────────────────────────── */
 
 export const serviceStarted = meter.createCounter('mcp.service.started', {
   description:
@@ -216,7 +216,7 @@ export const servicePolls = meter.createHistogram('mcp.service.polls', {
   unit: '{poll}'
 })
 
-/* ── Health (plan §2) ───────────────────────────────────────────────────────────────────── */
+/* ── Health ───────────────────────────────────────────────────────────────────── */
 
 export const connectedPeers = meter.createObservableGauge('mcp.p2p.connected_peers', {
   description: 'Live libp2p connections (connected, not merely discovered)',

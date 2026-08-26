@@ -7,7 +7,7 @@
  *
  * `categories.test.ts` walks a live `createServer()` instance and asserts every registered tool
  * resolves — that is the gate which catches a whole new domain file landing uncategorized, which
- * is exactly how the 11 Service-on-Demand tools would otherwise have slipped through (plan §0.1a).
+ * is exactly how the 11 Service-on-Demand tools would otherwise have slipped through.
  */
 export type ToolCategory =
   | 'assets'

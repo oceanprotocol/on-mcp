@@ -3,7 +3,7 @@
  *
  * Loaded via `node --import ./dist/telemetry/otel.js` (see the `start` script) so the SDK is
  * running **before** `express`/`http` are imported — HTTP auto-instrumentation cannot patch
- * modules that are already loaded (plan §3.3).
+ * modules that are already loaded.
  *
  * Importing this module is always safe: `initTelemetry()` self-disables unless the process is in
  * SSE mode with an OTLP endpoint configured, so the stdio path pays nothing and emits nothing.
