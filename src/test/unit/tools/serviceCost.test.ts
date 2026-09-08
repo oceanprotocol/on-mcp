@@ -63,9 +63,9 @@ describe('estimateServiceCost', () => {
     expect(e!.costHuman).to.equal(4)
   })
 
-  it('applies the env.minJobDuration floor clamp (30s on a 60s-min env bills 60s)', () => {
+  it('applies the env.minServiceDuration floor clamp (30s on a 60s-min env bills 60s)', () => {
     const e = estimateServiceCost(
-      env({ minJobDuration: 60 }),
+      env({ minServiceDuration: 60 }),
       8453,
       TOKEN_CHECKSUMMED,
       [{ id: 'cpu', amount: 1 }],

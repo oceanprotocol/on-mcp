@@ -126,7 +126,7 @@ Node enforces \`resources[].min\`, so requesting \`cpu: 1\` may bill the env min
 /** Tells the calling model to poll a started job to completion and fetch output without pausing to ask. Status values verified against ocean-node C2DStatusNumber/C2DStatusText. */
 export const P2P_COMPUTE_POLLING_GUIDE = `## After starting: poll to completion, fetch output — do NOT ask between polls
 Call **computeStatus** every ~5–10s until terminal, then fetch the result without asking. Status (\`C2DStatusNumber\`):
-- **70 / 71** → success. Fetch via **getComputeResult** (base64) or **get_compute_result_url** (URL).
+- **70 / 71** → success. Fetch via **getComputeResult** (base64). (There is no URL variant over P2P — the node returns the result bytes directly.)
 - **Failure** (\`statusText\` contains "failed" / "expired" / "vulnerabilities" / "disk quota exceeded"; e.g. 11, 13, 32, 41, 61, 62) → stop and report.
 - Anything else → in progress; keep polling.`
 
@@ -164,7 +164,7 @@ export const findProviderInputSchema = {
   content: z
     .string()
     .describe(
-      'Exact UTF-8 key for DHT lookup (SHA-256 → CID). For C2D use buildFindProviderC2dContent. Multi-dimensional needs (e.g. CPU and RAM): one find_provider per dimension, then intersect peers by result item **id**. See ocean://docs/c2d-find-provider-search.'
+      'Exact UTF-8 key for DHT lookup (SHA-256 → CID) — e.g. a DID or other advertised string. For compute (C2D) capacity discovery use the dedicated **find_compute_providers** tool instead (typed resource search with verification), not a hand-built key here.'
     ),
   timeout: nodeTargetSchema.timeout
 }

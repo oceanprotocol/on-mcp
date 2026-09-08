@@ -274,6 +274,7 @@ function inspect(name: string, args: any, res: unknown): void {
     }
 
     case 'find_provider':
+    case 'find_compute_providers':
     case 'is_valid_provider': {
       const result = payload(res)
       const found = Array.isArray(result)

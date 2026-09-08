@@ -1,8 +1,9 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js'
+import { localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js'
 import { Wallet } from 'ethers'
 import { randomUUID } from 'node:crypto'
+import express from 'express'
 import type { Request, Response } from 'express'
 
 import { ProviderInstance } from '@oceanprotocol/lib'
@@ -89,7 +90,14 @@ async function startStdioServer(serverContext: ServerContext) {
 }
 
 async function startSseServer(serverContext: ServerContext) {
-  const app = createMcpExpressApp({ host: sseHost })
+  // Mirrors `createMcpExpressApp`, but raises the JSON body limit from its default (~100KB) to 8MB
+  // so agents can upload multi-MB files in a single request. We still apply the SDK's DNS-rebinding
+  // (host-header) protection for localhost binds — the default helper enables it automatically.
+  const app = express()
+  app.use(express.json({ limit: '8mb' }))
+  if (['127.0.0.1', 'localhost', '::1'].includes(sseHost)) {
+    app.use(localhostHostValidation())
+  }
   // A Map, not an object literal: with `transports[sessionId]` a client sending
   // `mcp-session-id: constructor` (or any Object.prototype key) gets a truthy "transport" back and
   // is routed into `handleRequest` on a function. Map has no prototype chain to inherit from.
