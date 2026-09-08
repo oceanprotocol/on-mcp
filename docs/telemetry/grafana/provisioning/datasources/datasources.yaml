@@ -1,0 +1,26 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: on-mcp-prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      # Lets a spike in a metric panel jump straight to the trace that produced it.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: on-mcp-tempo
+
+  - name: Tempo
+    type: tempo
+    uid: on-mcp-tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      tracesToMetrics:
+        datasourceUid: on-mcp-prometheus
+      nodeGraph:
+        enabled: true

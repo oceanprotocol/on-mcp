@@ -4,6 +4,12 @@ import { Contract, Wallet, formatUnits, getAddress } from 'ethers'
 import { z } from 'zod/v4'
 
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
+import {
+  recordAutoFix,
+  recordPreflight,
+  recordPreflightError,
+  type PreflightCaller
+} from '../telemetry/escrowMetrics.js'
 import { stringifyError, textContent } from '../utils/format.js'
 import { resolveConsumerAddress } from '../utils/auth.js'
 import {
@@ -18,6 +24,28 @@ export const LOCK_DURATION_BUFFER_SECONDS = 86400 // 24h
 export const DEFAULT_PARALLEL_JOBS = 3
 /** Deep link to the dashboard's escrow management view. */
 export const MANAGE_ESCROW_URL = 'https://dashboard.oncompute.ai/profile/escrow'
+/** Assumed `claimDurationTimeout` when the node's real value is unknowable — see below. */
+export const DEFAULT_CLAIM_DURATION_TIMEOUT_SECONDS = 3600
+
+/**
+ * `minLockSeconds` for a service of `durationSeconds`.
+ *
+ * ocean-node's rule is `Escrow.getMinLockTime(d) = d + claimDurationTimeout`
+ * (`utils/escrow.ts:40`), where `claimDurationTimeout` is **per-node config**
+ * (`schemas.ts:786`, `z.coerce.number().default(3600)`) that **no protocol command exposes**.
+ * So this is a padded *lower bound*, not an equality — do NOT "simplify" it to a bare `+ 3600`:
+ * on a node that raised the timeout, an exact-3600 figure would green-light a service whose
+ * `createLock` then fails, with nothing in the output to explain why.
+ *
+ * The padding only affects the figure echoed to the caller; `escrow_preflight`'s own
+ * authorization target (`maxJobDuration + 24h`) already dwarfs any plausible setting.
+ */
+export function serviceMinLockSeconds(durationSeconds: number): number {
+  return (
+    durationSeconds +
+    Math.max(DEFAULT_CLAIM_DURATION_TIMEOUT_SECONDS, Math.ceil(0.25 * durationSeconds))
+  )
+}
 
 const ERC20_DECIMALS_ABI = ['function decimals() view returns (uint8)']
 
@@ -85,6 +113,12 @@ export async function runEscrowPreflight(params: {
   payment: PaymentInfo
   maxJobDuration: number
   parallelJobs?: number
+  /**
+   * Which context invoked the check, for the `mcp.escrow.preflight{caller}` metric. Most
+   * preflights are the implicit gates inside `computeStart`/`serviceStart`, not this tool — see
+   * `telemetry/escrowMetrics.ts`.
+   */
+  caller?: PreflightCaller
 }): Promise<EscrowPreflightResult> {
   const { evmRegistry, payment, maxJobDuration } = params
   const parallelJobs = params.parallelJobs ?? DEFAULT_PARALLEL_JOBS
@@ -98,22 +132,32 @@ export async function runEscrowPreflight(params: {
   const signer = getVoidSigner(evmRegistry, chainId, payer) as never
   const escrow = new EscrowContract(escrowAddress, signer, chainId)
 
-  const fundsRaw = await escrow.getUserFunds(payer, token)
-  const available = BigInt(fundsRaw[0].toString())
+  let available: bigint
+  let authorization: EscrowAuthorizationView | null
+  try {
+    const fundsRaw = await escrow.getUserFunds(payer, token)
+    available = BigInt(fundsRaw[0].toString())
 
-  const auths = await escrow.getAuthorizations(token, payer, payee)
-  const auth = auths && auths.length > 0 ? auths[0] : null
-  const authorization: EscrowAuthorizationView | null = auth
-    ? {
-        maxLockedAmount: BigInt(auth[1].toString()),
-        currentLockedAmount: BigInt(auth[2].toString()),
-        maxLockSeconds: BigInt(auth[3].toString()),
-        maxLockCounts: BigInt(auth[4].toString()),
-        currentLocks: BigInt(auth[5].toString())
-      }
-    : null
+    const auths = await escrow.getAuthorizations(token, payer, payee)
+    const auth = auths && auths.length > 0 ? auths[0] : null
+    authorization = auth
+      ? {
+          maxLockedAmount: BigInt(auth[1].toString()),
+          currentLockedAmount: BigInt(auth[2].toString()),
+          maxLockSeconds: BigInt(auth[3].toString()),
+          maxLockCounts: BigInt(auth[4].toString()),
+          currentLocks: BigInt(auth[5].toString())
+        }
+      : null
+  } catch (error) {
+    // Both gates swallow their errors and proceed ("let the node decide"), so without this a broken
+    // escrow RPC looks like *no preflight traffic* rather than a problem — silently biasing the
+    // block-rate denominator. Record and rethrow; the callers' behaviour is unchanged.
+    recordPreflightError(params.caller ?? 'tool')
+    throw error
+  }
 
-  return evaluateEscrowReadiness({
+  const result = evaluateEscrowReadiness({
     payer,
     payee,
     token,
@@ -126,6 +170,10 @@ export async function runEscrowPreflight(params: {
     available,
     authorization
   })
+
+  // Recorded here rather than in the tool wrapper: two of the three callers are gates, not tools.
+  recordPreflight(result, params.caller ?? 'tool')
+  return result
 }
 
 /**
@@ -276,7 +324,7 @@ export function evaluateEscrowReadiness(params: {
   }
 }
 
-async function getTokenDecimals(
+export async function getTokenDecimals(
   evmRegistry: EvmProviderRegistry,
   chainId: number,
   token: string
@@ -452,12 +500,14 @@ export function registerEscrowPreflightTool({ server, evmRegistry }: Params): vo
         const shouldAutoFix = !result.ready && !!privateKey && autoFix !== false
         if (shouldAutoFix) {
           autoFixActions = await autoFixEscrow({ evmRegistry, privateKey, result })
+          recordAutoFix(autoFixActions)
           result = await runEscrowPreflight({
             evmRegistry,
             payer,
             payment: paymentInfo,
             maxJobDuration,
-            parallelJobs
+            parallelJobs,
+            caller: 'tool_recheck'
           })
         }
 

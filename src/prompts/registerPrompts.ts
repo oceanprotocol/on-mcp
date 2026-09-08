@@ -208,140 +208,6 @@ const ALGO_METADATA_TEMPLATE = (
   ]
 }`
 
-const DIAGNOSTICS: Record<
-  string,
-  { title: string; checks: string[]; commands: string[]; notes: string }
-> = {
-  no_benchmark_jobs: {
-    title: 'Node Is Not Receiving Benchmark Jobs',
-    checks: [
-      'Version >= 3.1.1 - check at: curl http://localhost:8000/api/services/info | jq .version',
-      'P2P public IP announced - P2P_ANNOUNCE_ADDRESSES must contain your real public IP (not 127.x, 10.x, 192.168.x, or relay-only)',
-      'Base chain configured - escrowAddress must include chain ID 8453',
-      'Compute environment pricing: 0 < total < 3 USDC/min to be eligible, <= 1 USDC/min to receive jobs',
-      'GPU resource listed in at least one compute environment',
-      'ENABLE_BENCHMARK set to yes in config',
-      'Consecutive monitoring failures < 3 - check Nodes Dashboard eligibility tab',
-      '7-day success rate >= 50% - check Nodes Dashboard'
-    ],
-    commands: [
-      'curl http://localhost:8000/api/services/info | jq .version',
-      'docker logs ocean-node --tail 100'
-    ],
-    notes:
-      'Use the check_node_eligibility tool with your config to get a full per-criterion report.'
-  },
-  node_wont_start: {
-    title: "Node Won't Start or Exits Immediately",
-    checks: [
-      'PRIVATE_KEY must start with 0x',
-      'Port 8000 (or HTTP_API_PORT) is not already in use: lsof -i :8000',
-      'Docker daemon is running: docker info',
-      'Database container is healthy (if using Typesense/Elasticsearch)',
-      'DB_URL is reachable from the node container'
-    ],
-    commands: [
-      'docker logs ocean-node --tail 50',
-      'pm2 logs ocean-node --lines 50',
-      'lsof -i :8000',
-      'docker ps -a'
-    ],
-    notes:
-      'The most common cause is an invalid PRIVATE_KEY or port conflict. Check logs first.'
-  },
-  gpu_not_detected: {
-    title: 'GPU Not Detected',
-    checks: [
-      'NVIDIA drivers installed: nvidia-smi',
-      'NVIDIA Container Toolkit installed: docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi',
-      'DOCKER_COMPUTE_ENVIRONMENTS has GPU resource listed in resources array',
-      "Docker is configured to use the NVIDIA runtime: check /etc/docker/daemon.json for 'nvidia' runtime"
-    ],
-    commands: [
-      'nvidia-smi',
-      'docker run --rm --gpus all nvidia/cuda:11.0-base nvidia-smi',
-      'cat /etc/docker/daemon.json'
-    ],
-    notes:
-      'If NVIDIA Container Toolkit is not installed, Docker cannot pass through the GPU to containers. Install it from https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html'
-  },
-  job_stuck_running: {
-    title: 'Job Stuck in Running / Not Completing',
-    checks: [
-      'Max job duration: default is 3600s - is the job running longer than that?',
-      'Benchmark jobs are capped at 180s (3 minutes) - longer jobs will be marked failed',
-      'Check Docker container logs for out-of-memory (OOM) errors',
-      'Verify allocated CPU/RAM/disk is sufficient for the workload',
-      'Algorithm writes to /data/outputs/ - if nothing is written the job may hang'
-    ],
-    commands: [
-      'docker ps -a  # look for running job containers',
-      'docker logs <JOB_CONTAINER_ID> --tail 100',
-      "npm run cli getJobStatus -d $DATASET_DID -j $JOB_ID ''"
-    ],
-    notes:
-      'Job status codes: 60-69 = failed, >=70 = completed successfully. A status of exactly 70 means success.'
-  },
-  payment_errors: {
-    title: 'Payment or Escrow Errors',
-    checks: [
-      'Run escrow_preflight (payment from initializeCompute + env maxJobDuration) to see exactly what is short — funds or authorization',
-      "Consumer's fee-token balance on Base is sufficient (USDC or COMPY)",
-      'ESCROW_CLAIM_TIMEOUT (default 3600s) - increase if jobs are long-running',
-      'feeToken in compute environment matches the payment token the user is sending',
-      'Base fee tokens: USDC 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 · COMPY (Ocean grant token) 0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2'
-    ],
-    commands: [
-      '# Manage escrow (deposit / authorize): https://dashboard.oncompute.ai/profile/escrow',
-      'npm run cli getUserFundsEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-      'npm run cli depositEscrow --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 --amount 10'
-    ],
-    notes:
-      'For paid jobs, the consumer must deposit to escrow and authorize the node (payee) to lock tokens. escrow_preflight auto-fixes this when given a privateKey; otherwise send the user to https://dashboard.oncompute.ai/profile/escrow. computeStart also gates on this preflight.'
-  },
-  suspended_or_banned: {
-    title: 'Node Suspended or Banned from Incentives',
-    checks: [
-      '3 consecutive monitoring failures trigger exponential suspension (starts at 4 hours, doubles each time, max 7 days)',
-      "At end of weekly epoch: success rate < 50% = banned from that week's pool",
-      'Check Nodes Dashboard -> Your Node -> Eligibility tab for current status and reason'
-    ],
-    commands: ['# Check via Nodes Dashboard: https://dashboard.oceanprotocol.com'],
-    notes:
-      "To request an unban: go to Nodes Dashboard, find your node, and click the 'Request Unban' button. This triggers a high-priority benchmark job. 3 failed unban attempts escalate the ban duration."
-  },
-  p2p_connectivity: {
-    title: 'P2P Connectivity Issues',
-    checks: [
-      'Firewall: P2P ports (P2P_ipV4BindTcpPort, P2P_ipV4BindWsPort) must be open',
-      'P2P_ANNOUNCE_ADDRESSES must be your real public IP, not localhost or private range',
-      'Bootstrap nodes reachable: check P2P_BOOTSTRAP_NODES'
-    ],
-    commands: [
-      'curl -s https://ipinfo.io/ip  # verify your public IP',
-      'nc -zv YOUR_PUBLIC_IP 8001    # test if P2P port is open externally',
-      'docker logs ocean-node --tail 50 | grep -i p2p'
-    ],
-    notes:
-      'The node must advertise at least one public IP multiaddr to the monitoring service. Relay-only connections are rejected for benchmark eligibility.'
-  },
-  database_errors: {
-    title: 'Database Connection Issues',
-    checks: [
-      'DB_URL is set correctly (Typesense: http://host:8108/?apiKey=KEY, or Elasticsearch URL)',
-      'Database container is running: docker ps | grep typesense',
-      'ELASTICSEARCH_REQUEST_TIMEOUT (default 60000ms) - increase for slow connections',
-      'DB_USERNAME and DB_PASSWORD set if authentication is enabled'
-    ],
-    commands: [
-      "docker ps | grep -E 'typesense|elastic'",
-      'curl http://localhost:8108/health'
-    ],
-    notes:
-      'If no DB_URL is set, the node uses an internal SQLite database. For production, Typesense or Elasticsearch is recommended.'
-  }
-}
-
 function promptMessage(text: string) {
   return {
     messages: [
@@ -657,67 +523,61 @@ ${isAlgorithm ? '- Whitelist the algorithm on target datasets before running C2D
   )
 
   server.registerPrompt(
-    'debug_node',
+    'run_service',
     {
       description:
-        'Diagnose Ocean Node issues with targeted checks, diagnostic commands, and fixes.',
+        'Rent a long-running container service on an Ocean node end to end: find a service-capable environment, estimate cost, provision escrow, start, poll to Running, and hand back reachable endpoint URLs.',
       argsSchema: {
-        issue: z
-          .enum([
-            'no_benchmark_jobs',
-            'node_wont_start',
-            'gpu_not_detected',
-            'job_stuck_running',
-            'payment_errors',
-            'suspended_or_banned',
-            'p2p_connectivity',
-            'database_errors'
-          ])
-          .describe('The issue to diagnose'),
-        error_message: z
+        goal: z
+          .string()
+          .describe(
+            'What the service should be, e.g. "a vLLM server for Qwen2-0.5B" or "a Postgres instance for 2 hours"'
+          ),
+        node_peer_id: z
           .string()
           .optional()
-          .describe('Paste the error message or log excerpt if you have one')
+          .describe('Target node peerID. Omit to discover one with findServiceNodes.'),
+        duration_hours: z
+          .string()
+          .optional()
+          .describe('How long the service should stay up (default: 1)')
       }
     },
     (args) => {
-      const { issue, error_message: errorMessage } = args
-      const diagnostic = DIAGNOSTICS[issue]
-      const lines = [
-        `# Diagnosing: ${diagnostic.title}`,
-        '',
-        '## What to Check',
-        ...diagnostic.checks.map((check, index) => `${index + 1}. ${check}`),
-        '',
-        '## Diagnostic Commands',
-        '```bash',
-        ...diagnostic.commands,
-        '```',
-        '',
-        `## Notes\n${diagnostic.notes}`
-      ]
-
-      if (errorMessage) {
-        lines.push(
-          '',
-          '## Your Error Message',
-          '```',
-          errorMessage,
-          '```',
-          '',
-          'Analyse the error message above in the context of the checks listed and identify the most likely failing check.'
-        )
-      }
-
-      lines.push(
-        '',
-        '## Related Tools',
-        '- **check_node_eligibility** - validate your full node config against all eligibility criteria',
-        '- **get_workflow("troubleshoot_node")** - full step-by-step troubleshooting guide',
-        '- **search_docs** - search all node documentation and source code'
+      const { goal, node_peer_id: nodePeerId, duration_hours: durationHours } = args
+      const hours = Number(durationHours ?? '1')
+      const durationSeconds = Math.max(
+        60,
+        Math.round((Number.isFinite(hours) ? hours : 1) * 3600)
       )
 
-      return promptMessage(lines.join('\n'))
+      return promptMessage(
+        [
+          `Start an Ocean Service-on-Demand for: ${goal}`,
+          '',
+          'Read the **ocean://docs/service-on-demand** resource first if you have not already —',
+          'services behave very differently from compute jobs.',
+          '',
+          '## Steps',
+          nodePeerId
+            ? `1. **Pick the environment.** Call \`findServiceEnvironments\` on node \`${nodePeerId}\` with the chainId and fee token the user intends to pay with. Pick an env with \`eligible: true\`; if none is, report each env's \`mismatchReason\` rather than silently giving up.`
+            : '1. **Find a node and environment.** Call `findServiceNodes` (optionally seeded with `list_discovered_peers` or `incentives_list_nodes`), then `findServiceEnvironments` on a promising peer. Only some nodes have services enabled — an unreachable peer is skipped, not a failure.',
+          '2. **Optional starting point.** `getServiceTemplates` shows what the operator suggests. Use the returned `serviceStartArgs` projection verbatim — do **not** hand-copy `command`/`entrypoint` from `template`, they are `dockerCmd`/`dockerEntrypoint` on start and are silently dropped under their template names. An empty catalogue is normal; bring your own image instead.',
+          `3. **Estimate the cost.** \`estimateServiceCost\` with the env, \`duration: ${durationSeconds}\`, chainId, token and resources. Report the figure as an **estimate** — there is no server-side quote. Denominate it with \`get_erc20_token_info\` before showing it; never format raw base units yourself.`,
+          '4. **Provision escrow.** Feed the returned `payment` object straight into `escrow_preflight` with `maxJobDuration = duration`. If `escrowRequired` came back `false`, skip this step entirely. With a private key it auto-deposits and authorizes; otherwise show the Manage-escrow redirect and stop until the user has done it.',
+          `5. **Start.** \`serviceStart\` with the env, container spec, \`duration: ${durationSeconds}\` and \`payment\`. Confirm the whole cost is committed up front and there is no refund for stopping early. Ports the container listens on must be ≥ 1024.`,
+          '6. **Poll.** `serviceStatus` every ~5–10s until status `40` — **without asking the user between polls**. Image pulls and builds take minutes. `50 Stopping` is not an end state; keep going to `70`. Terminal failures are `12, 14, 15, 99`.',
+          '7. **Hand over.** Report each `endpoints[].url` as returned, the `expiresAtIso`, and that the endpoints are **not authenticated by the node** — anyone with the URL can reach the container.',
+          '',
+          '## Afterwards',
+          '- `serviceLogs` (with a bounded `since`, default 5m) to debug a container that is up but misbehaving.',
+          '- `serviceExtend` to lengthen the window — it bills the additional duration alone, priced off the **stored** job resources and environment (read both from `serviceStatus`).',
+          '- `serviceRestart` to bounce it. No container params = REUSE the stored spec. Any container param = RESPEC, where `image` is mandatory and anything omitted is empty rather than inherited — so to change one thing, re-send the whole spec.',
+          '- `serviceStop` tears the container down but **keeps the paid reservation** until `expiresAt`. It does not refund and does not free capacity — do not offer it as a way to save money.',
+          '',
+          'If the user passes secrets (API keys, HF tokens) as `userData`, warn that the values transit this conversation, prefer short-lived tokens, and note that the node strips `userData` from every response so they can never be read back.'
+        ].join('\n')
+      )
     }
   )
 }

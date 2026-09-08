@@ -5,7 +5,6 @@ import { Wallet } from 'ethers'
 import { NodeClient } from '../clients/nodeClient.js'
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
 import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
-import { buildC2dProviderSearchContent } from '../utils/c2dProviderSearchString.js'
 import { decodeAuthTokenAddress } from '../utils/auth.js'
 import { toJsonFriendly } from './evmToolUtils.js'
 import {
@@ -98,7 +97,8 @@ async function escrowPreflightGate(
       payer,
       payment,
       maxJobDuration: args.maxJobDuration,
-      parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS
+      parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      caller: 'compute_gate'
     })
     if (!preflight.canStartThisJob) {
       return {
@@ -164,65 +164,49 @@ ${P2P_RECOMMENDED_NODES_GUIDE}`,
   )
 
   server.registerTool(
-    'buildFindProviderC2dContent',
+    'find_compute_providers',
     {
-      title: 'Build C2D find_provider search string',
-      description: `Returns the exact **content** string to pass to **find_provider** for compute (C2D) capacity discovery. Matches ocean-node **p2pAnnounceC2D** and **advertiseString(JSON.stringify({ c2d: obj }))**.
+      title: 'Find compute (C2D) providers by resources',
+      description: `Typed compute-provider discovery over the DHT (\`ProviderInstance.findComputeProviders\`). Pass ordinary resource values — no hand-built search string, no bucket math.
 
-Specify **exactly one** resource: **cpu**, **gpu**, **ramGb**, or **diskGb** (positive integers). **free: true** = free tier announcements; **free: false** = paid.
+Provide **free** (true = free tier, false = paid) and one or more **resources** (e.g. \`[{ "resource": "cpu", "value": 4 }, { "resource": "ram", "value": 8 }]\`). Multiple resources are **AND-intersected** in a single call. Optional **models** (e.g. \`{ "gpu": "A100" }\`) is applied only when verifying a candidate's real environments.
 
-GPU extras (optional): **description** only with paid GPU (free: false); **kind** only with free GPU (free: true).
+**How it works:** each dimension is a DHT lookup against power-of-two buckets (rounded down, so a match is a prefilter); every surviving candidate is then **verified** against its real compute environments before being returned. So \`providers[].environments\` are real.
 
-**Returns:** command + result with **content** (pass to find_provider) and **inner** (parsed object).
+**Result:** \`{ providers: [{ node, environments }], dimensions: [{ resource, value, bucket, providerIds, partial?, error? }] }\`. "Nothing found" is a normal result (never an error) — inspect \`dimensions\` to see exactly which requested resource came up empty.
 
-For **multiple** dimensions (e.g. 2 CPUs **and** 8 GB RAM), build one **content** per dimension, run **find_provider** for each, then **intersect** peers by **id**. See resource **ocean://docs/c2d-find-provider-search** (section *Compound requirements*).`,
+**Requires the fleet to run ocean-node ≥ 4.1.0** (older nodes don't advertise the resource buckets, so they won't be found). Resource names are open strings — \`cpu\`, \`gpu\`, \`ram\`, \`disk\`, or anything a compute engine reports.`,
       inputSchema: {
         free: z
           .boolean()
-          .describe('true = free-tier C2D announcements; false = paid-tier.'),
-        cpu: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe('CPU core count (mutually exclusive with gpu, ramGb, diskGb).'),
-        gpu: z.number().int().positive().optional().describe('GPU core count.'),
-        ramGb: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe('RAM in gigabytes (JSON key in search string is "ram").'),
-        diskGb: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe('Disk in gigabytes (JSON key in search string is "disk").'),
-        description: z
-          .string()
+          .describe('true = free-tier compute environments; false = paid-tier.'),
+        resources: z
+          .array(
+            z.object({
+              resource: z
+                .string()
+                .describe('Resource name, e.g. "cpu", "gpu", "ram", "disk".'),
+              value: z.number().describe('Requested amount (cores, or GB for ram/disk).')
+            })
+          )
+          .min(1)
+          .describe('One entry per dimension; all are AND-intersected.'),
+        models: z
+          .record(z.string(), z.string())
           .optional()
           .describe(
-            'Paid GPU only: matches node second variant with resource.description.'
+            'Optional per-resource qualifier applied at verification, e.g. { "gpu": "A100" }.'
           ),
-        kind: z
-          .string()
-          .optional()
-          .describe('Free GPU only: matches node second variant with resource kind.')
+        timeout: nodeTargetSchema.timeout
       }
     },
-    (args) => {
+    async (args) => {
       try {
-        const { content, inner } = buildC2dProviderSearchContent({
-          free: args.free,
-          cpu: args.cpu,
-          gpu: args.gpu,
-          ramGb: args.ramGb,
-          diskGb: args.diskGb,
-          description: args.description,
-          kind: args.kind
-        })
-        return commandResultPayload('buildFindProviderC2dContent', { content, inner })
+        const result = await nodeClient.findComputeProviders(
+          { free: args.free, resources: args.resources, models: args.models },
+          timeoutMs(args.timeout)
+        )
+        return commandResultPayload('find_compute_providers', result)
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }
@@ -234,7 +218,7 @@ For **multiple** dimensions (e.g. 2 CPUs **and** 8 GB RAM), build one **content*
     {
       title: 'Find provider for specific string',
       description:
-        'DHT lookup: hashes content (SHA-256) and returns peers that provided that exact string. For C2D use **buildFindProviderC2dContent**. For AND across dimensions (e.g. CPU + RAM), run one query per dimension and intersect results by peer **id** — see ocean://docs/c2d-find-provider-search.',
+        'DHT lookup: hashes content (SHA-256) and returns peers that provided that exact string (e.g. a DID). Results are `{ id, multiaddrs, partial?, error? }` per peer — `partial` marks a walk that ended early. For compute (C2D) capacity discovery use **find_compute_providers** (typed resource search with verification) instead of hand-building a key here.',
       inputSchema: { ...findProviderInputSchema }
     },
     async ({ content, timeout }) => {
@@ -261,6 +245,63 @@ ${P2P_RECOMMENDED_NODES_GUIDE}`,
         const node = parseNodeTarget(nodeId, multiaddress)
         const result = await nodeClient.getComputeEnvironments(node, timeoutMs(timeout))
         return commandResultPayload('getComputeEnvironments', result)
+      } catch (error) {
+        return { ...textContent(stringifyError(error)), isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'get_node_metrics',
+    {
+      title: 'Get node resource metrics (live)',
+      description: `Live per-node resource snapshot (\`getNodeMetrics\`): CPU, memory, storage, GPU and per-environment usage collected at \`collectedAt\`. No auth.
+
+**Returns:** a \`NodeMetricsSnapshot\`, or \`null\` if the target node does not expose this feature (older ocean-node).
+
+${P2P_RECOMMENDED_NODES_GUIDE}`,
+      inputSchema: { ...nodeTargetSchema }
+    },
+    async ({ nodeId, multiaddress, timeout }) => {
+      try {
+        const node = parseNodeTarget(nodeId, multiaddress)
+        const result = await nodeClient.getNodeMetrics(node, timeoutMs(timeout))
+        return commandResultPayload('get_node_metrics', result)
+      } catch (error) {
+        return { ...textContent(stringifyError(error)), isError: true }
+      }
+    }
+  )
+
+  server.registerTool(
+    'get_node_metrics_history',
+    {
+      title: 'Get node resource metrics (hourly history)',
+      description: `Hourly-averaged node resource metrics over a time window (\`getNodeMetricsHistory\`). No auth.
+
+**Returns:** a \`NodeMetricsHistoryResult\` with an \`buckets\` array, or \`null\` if the target node does not expose this feature (older ocean-node).`,
+      inputSchema: {
+        ...nodeTargetSchema,
+        startTime: z
+          .number()
+          .optional()
+          .describe('Window start (unix seconds). Omit for the node default.'),
+        stopTime: z
+          .number()
+          .optional()
+          .describe('Window end (unix seconds). Omit for the node default.')
+      }
+    },
+    async ({ nodeId, multiaddress, timeout, startTime, stopTime }) => {
+      try {
+        const node = parseNodeTarget(nodeId, multiaddress)
+        const result = await nodeClient.getNodeMetricsHistory(
+          node,
+          startTime,
+          stopTime,
+          timeoutMs(timeout)
+        )
+        return commandResultPayload('get_node_metrics_history', result)
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }
@@ -1355,38 +1396,6 @@ ${P2P_AUTH_SIGNING_GUIDE}
           timeoutMs(timeout)
         )
         return commandResultPayload('policy_server_initialize_verification', result)
-      } catch (error) {
-        return { ...textContent(stringifyError(error)), isError: true }
-      }
-    }
-  )
-
-  server.registerTool(
-    'get_compute_result_url',
-    {
-      title: 'P2P get compute result URL',
-      description: `Non-streaming compute result request (\`getComputeResultUrl\` / \`${PROTOCOL_COMMANDS.COMPUTE_GET_RESULT}\` with consumer address). Returns URL or node payload — not raw file bytes (use **getComputeResult** for base64 stream).
-
-${P2P_AUTH_SIGNING_GUIDE}`,
-      inputSchema: {
-        ...nodeTargetSchema,
-        ...p2pAuthFieldSchemas,
-        jobId: z.string(),
-        index: z.number().int().nonnegative()
-      }
-    },
-    async (args) => {
-      try {
-        const auth = resolveAuth(args.authToken, args.completeSignature)
-        const node = parseNodeTarget(args.nodeId, args.multiaddress)
-        const result = await nodeClient.getComputeResultUrl(
-          node,
-          auth,
-          args.jobId,
-          args.index,
-          timeoutMs(args.timeout)
-        )
-        return commandResultPayload('get_compute_result_url', result)
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }

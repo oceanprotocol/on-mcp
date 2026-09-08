@@ -1,0 +1,83 @@
+# Local telemetry stack for on-mcp: OTel Collector + Prometheus + Tempo + Grafana.
+#
+#   docker compose -f docs/telemetry/docker-compose.telemetry.yml up -d
+#
+# Grafana comes up on http://localhost:3001 (anonymous admin) with both datasources and the
+# on-mcp dashboard already provisioned — no manual setup.
+#
+# Port note: Grafana is on 3001, not its default 3000, because the MCP server's own default
+# MCP_PORT is 3000.
+
+name: on-mcp-telemetry
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ['--config=/etc/otel-collector.yaml']
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - '4318:4318' # OTLP/HTTP — this is OTEL_EXPORTER_OTLP_ENDPOINT for the server
+      - '4317:4317' # OTLP/gRPC
+    depends_on:
+      - prometheus
+      - tempo
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    # `--web.enable-remote-write-receiver` is what lets the Collector push metrics in; without it
+    # the Collector logs 404s and no metric ever lands.
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.enable-remote-write-receiver'
+      - '--enable-feature=exemplar-storage'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./rules.yml:/etc/prometheus/rules.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - '9090:9090'
+
+  # grafana/tempo runs as uid 10001, and it must be able to create /var/tempo/{wal,blocks}. Docker
+  # seeds a named volume from the image's ownership, which usually suffices — this init step makes it
+  # deterministic rather than dependent on that behaviour, and is the pattern Grafana's own examples
+  # use. It exits immediately.
+  tempo-init:
+    image: grafana/tempo:2.7.0
+    user: root
+    entrypoint: ['chown', '-R', '10001:10001', '/var/tempo']
+    volumes:
+      - tempo-data:/var/tempo
+
+  tempo:
+    image: grafana/tempo:2.7.0
+    command: ['-config.file=/etc/tempo.yaml']
+    depends_on:
+      tempo-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - '3200:3200' # Tempo HTTP API (Grafana datasource)
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: 'true'
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - '3001:3000'
+    depends_on:
+      - prometheus
+      - tempo
+
+volumes:
+  prometheus-data:
+  tempo-data:

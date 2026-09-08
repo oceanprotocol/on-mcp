@@ -230,17 +230,21 @@ export async function loadDocs(): Promise<DocIndex> {
   const startedAt = Date.now()
   const entries: DocEntry[] = []
 
-  console.log('[docs-loader] Indexing documentation sources...')
+  // `console.error`, not `console.log`: in stdio mode stdout IS the JSON-RPC channel, and these
+  // progress lines were landing in it ahead of the initialize response — corrupting the protocol
+  // stream for any client strict about what it parses. `index.ts` redirects `console.error` into
+  // `debug.log`, so this keeps the diagnostics without touching stdout in either transport.
+  console.error('[docs-loader] Indexing documentation sources...')
 
   for (const source of sources) {
     const sourceEntries = await loadSource(source)
     entries.push(...sourceEntries)
-    console.log(
+    console.error(
       `[docs-loader] ${source.section}: ${sourceEntries.length} files indexed from ${source.rootPath}`
     )
   }
 
-  console.log(
+  console.error(
     `[docs-loader] Done. Total: ${entries.length} entries in ${Date.now() - startedAt}ms`
   )
 

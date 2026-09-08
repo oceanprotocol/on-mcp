@@ -1,10 +1,10 @@
 import type { DocIndex } from '../docs/loader.js'
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
 import { C2D_ALGORITHM_AUTHORING_MARKDOWN } from '../utils/c2dAlgorithmAuthoring.js'
-import { C2D_FIND_PROVIDER_RESOURCE_MARKDOWN } from '../utils/c2dProviderSearchString.js'
+import { SERVICE_ON_DEMAND_MARKDOWN } from '../utils/serviceOnDemand.js'
 
-export const C2D_FIND_PROVIDER_URI = 'ocean://docs/c2d-find-provider-search'
 export const C2D_ALGORITHM_AUTHORING_URI = 'ocean://docs/c2d-algorithm-authoring'
+export const SERVICE_ON_DEMAND_URI = 'ocean://docs/service-on-demand'
 export const EVM_SUPPORTED_CHAINS_URI = 'ocean://evm/supported-chains'
 
 export type ResourceSummary = {
@@ -61,19 +61,19 @@ export function getDocsResourceContent(
 export function listBuiltinResources(): ResourceSummary[] {
   return [
     {
-      name: 'c2d-find-provider-search',
-      uri: C2D_FIND_PROVIDER_URI,
-      title: 'C2D find_provider search strings',
-      description:
-        'How ocean-node advertises compute capacity for DHT discovery and how to use buildFindProviderC2dContent + find_provider.',
-      mimeType: 'text/markdown'
-    },
-    {
       name: 'c2d-algorithm-authoring',
       uri: C2D_ALGORITHM_AUTHORING_URI,
       title: 'C2D algorithm authoring (rawcode + prebuilt image)',
       description:
         'Recommended C2D path: prebuilt oceanprotocol/c2d_examples image + inline rawcode. Image catalog, algorithm object shape, /data input/output contract, constraints, free-compute auth, and node targeting.',
+      mimeType: 'text/markdown'
+    },
+    {
+      name: 'service-on-demand',
+      uri: SERVICE_ON_DEMAND_URI,
+      title: 'Service-on-Demand (long-running containers)',
+      description:
+        'How Ocean services differ from compute jobs: asynchronous start, the status codes (incl. 45 Restarting and the Stopping-is-not-terminal trap), the pay-up-front reservation model, client-side cost estimation, REUSE/RESPEC restart semantics, templates as suggestions, and where endpoint hosts come from.',
       mimeType: 'text/markdown'
     },
     {
@@ -91,19 +91,19 @@ export async function getBuiltinResourceContent(
   evmRegistry: EvmProviderRegistry,
   uri: string
 ): Promise<ResourceContent | undefined> {
-  if (uri === C2D_FIND_PROVIDER_URI) {
-    return {
-      uri,
-      mimeType: 'text/markdown',
-      text: C2D_FIND_PROVIDER_RESOURCE_MARKDOWN
-    }
-  }
-
   if (uri === C2D_ALGORITHM_AUTHORING_URI) {
     return {
       uri,
       mimeType: 'text/markdown',
       text: C2D_ALGORITHM_AUTHORING_MARKDOWN
+    }
+  }
+
+  if (uri === SERVICE_ON_DEMAND_URI) {
+    return {
+      uri,
+      mimeType: 'text/markdown',
+      text: SERVICE_ON_DEMAND_MARKDOWN
     }
   }
 

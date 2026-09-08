@@ -1,8 +1,9 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js'
+import { localhostHostValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js'
 import { Wallet } from 'ethers'
 import { randomUUID } from 'node:crypto'
+import express from 'express'
 import type { Request, Response } from 'express'
 
 import { ProviderInstance } from '@oceanprotocol/lib'
@@ -15,6 +16,16 @@ import {
 } from './evm/evmProviderRegistry.js'
 import { createServer } from './server/createServer.js'
 import type { ServerContext } from './server/serverContext.js'
+// Telemetry runtime. These modules depend on `@opentelemetry/api` only — never the SDK — so
+// importing them here cannot pull OTel ahead of `express` in the import graph and defeat the
+// `--import ./dist/telemetry/otel.js` bootstrap ordering (see docs/telemetry/README.md).
+import { telemetryConfig } from './telemetry/config.js'
+import { registerHealthGauges } from './telemetry/health.js'
+import { deriveUserId, extractClientIp, sanitizeClient } from './telemetry/identity.js'
+import { wrapMcpServer } from './telemetry/instrumentTools.js'
+import { endSession, getSession, startSession } from './telemetry/sessionTracker.js'
+import { recordTransportRejection } from './telemetry/transport.js'
+import { registerUserGauge } from './telemetry/userHll.js'
 
 import fs from 'fs'
 import util from 'util'
@@ -44,6 +55,19 @@ async function shutdown(signal: string) {
   isShuttingDown = true
 
   try {
+    // Before the exit, so the final metric batch actually reaches the collector. Telemetry owns no
+    // signal handler of its own precisely so this ordering is explicit rather than a race.
+    //
+    // Imported lazily: a static import would pull the OTel SDK into this module's graph, and the
+    // `--import ./dist/telemetry/otel.js` bootstrap depends on the SDK loading *before* `express`
+    // and `http`. Under `--import` this resolves from the module cache, so it costs nothing.
+    const { shutdownTelemetry } = await import('./telemetry/otel.js')
+    await shutdownTelemetry()
+  } catch (error) {
+    console.error(`[${signal}] Failed to shut down telemetry:`, error)
+  }
+
+  try {
     await getEvmProviderRegistry().destroy()
   } catch (error) {
     console.error(`[${signal}] Failed to destroy EVM provider registry:`, error)
@@ -66,8 +90,27 @@ async function startStdioServer(serverContext: ServerContext) {
 }
 
 async function startSseServer(serverContext: ServerContext) {
-  const app = createMcpExpressApp({ host: sseHost })
-  const transports: Record<string, StreamableHTTPServerTransport> = {}
+  // Mirrors `createMcpExpressApp`, but raises the JSON body limit from its default (~100KB) to 8MB
+  // so agents can upload multi-MB files in a single request. We still apply the SDK's DNS-rebinding
+  // (host-header) protection for localhost binds — the default helper enables it automatically.
+  const app = express()
+  app.use(express.json({ limit: '8mb' }))
+  if (['127.0.0.1', 'localhost', '::1'].includes(sseHost)) {
+    app.use(localhostHostValidation())
+  }
+  // A Map, not an object literal: with `transports[sessionId]` a client sending
+  // `mcp-session-id: constructor` (or any Object.prototype key) gets a truthy "transport" back and
+  // is routed into `handleRequest` on a function. Map has no prototype chain to inherit from.
+  const transports = new Map<string, StreamableHTTPServerTransport>()
+
+  const telemetry = telemetryConfig()
+  // Without this, `req.ip` behind a reverse proxy is the proxy's address, which would collapse
+  // every user onto one anonymous id. Defaults to `loopback` — set TRUST_PROXY for your topology.
+  app.set('trust proxy', telemetry.trustProxy)
+  if (telemetry.enabled) {
+    registerHealthGauges()
+    registerUserGauge()
+  }
 
   const getHeaderValue = (header: string | string[] | undefined): string | undefined =>
     typeof header === 'string' ? header : Array.isArray(header) ? header[0] : undefined
@@ -85,36 +128,68 @@ async function startSseServer(serverContext: ServerContext) {
       let transport: StreamableHTTPServerTransport
 
       if (sessionId) {
-        const existingTransport = transports[sessionId]
+        const existingTransport = transports.get(sessionId)
         if (!existingTransport) {
+          // Never reaches a tool, so it is invisible to mcp.tool.calls — and no session was ever
+          // created, so it is invisible to mcp.sessions.* too. A spike here means clients are
+          // holding session ids that died with the last restart.
+          recordTransportRejection('session_not_found')
           res.status(404).send('Session not found')
           return
         }
         transport = existingTransport
       } else if (req.method === 'POST' && isInitializeRequest(req.body)) {
+        // Captured here, on the initialize request, because it is the only point where the raw
+        // HTTP request is in scope. Hashed immediately below; the raw IP is never stored.
+        const clientIp = extractClientIp(req)
+        let trackedSessionId: string | undefined
+
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id) => {
-            transports[id] = transport
+            transports.set(id, transport)
+            trackedSessionId = id
           }
         })
 
         transport.onclose = () => {
-          const id = transport.sessionId
+          const id = transport.sessionId ?? trackedSessionId
           if (id) {
-            delete transports[id]
+            transports.delete(id)
+            // Emits session.duration / tool_calls / distinct_tools / sessions.empty. Idempotent.
+            endSession(id)
           }
         }
 
-        const server = createServer(serverContext)
+        const server = createServer(serverContext, (mcpServer) =>
+          wrapMcpServer(mcpServer, () => getSession(trackedSessionId))
+        )
+
+        // `oninitialized` is the first moment both the session id and the client's `clientInfo`
+        // are available — `onsessioninitialized` can fire before the initialize params are parsed.
+        server.server.oninitialized = () => {
+          const id = transport.sessionId ?? trackedSessionId
+          if (!id) return
+          trackedSessionId = id
+          const info = server.server.getClientVersion()
+          const { clientName, clientVersion } = sanitizeClient(info?.name, info?.version)
+          startSession(id, {
+            userId: deriveUserId(clientIp, clientName),
+            clientName,
+            clientVersion
+          })
+        }
+
         await server.connect(transport)
       } else {
+        recordTransportRejection('invalid_request')
         res.status(400).send('Missing or invalid MCP session')
         return
       }
 
       await transport.handleRequest(req, res, req.body)
     } catch (error) {
+      recordTransportRejection('handler_error')
       console.error('Error handling MCP request:', error)
       if (!res.headersSent) {
         res.status(500).send('Error handling MCP request')

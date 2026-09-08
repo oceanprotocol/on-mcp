@@ -174,7 +174,8 @@ describe('docs MCP merge', () => {
     })
 
     expect(fake.resources.map((resource) => resource.uri)).to.include.members([
-      'ocean://docs/c2d-find-provider-search',
+      'ocean://docs/c2d-algorithm-authoring',
+      'ocean://docs/service-on-demand',
       'ocean://evm/supported-chains',
       'ocean://docs/guide/README.md'
     ])
@@ -202,7 +203,7 @@ describe('docs MCP merge', () => {
       'new_c2d_algo_js',
       'setup_node',
       'publish_asset',
-      'debug_node'
+      'run_service'
     ])
   })
 })
