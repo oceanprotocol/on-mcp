@@ -114,7 +114,7 @@ export type ServiceCostEstimate = {
   costHuman: number
   /** `feeToken` **verbatim as the env advertised it** — send this back, not the caller's casing. */
   feeToken: string
-  /** Duration after the `env.minJobDuration` floor clamp. */
+  /** Duration after the `env.minServiceDuration` floor clamp. */
   effectiveDurationSeconds: number
   /** `ceil(effectiveDuration / 60)` — what the node actually bills. */
   minutesBilled: number
@@ -128,7 +128,8 @@ export type ServiceCostEstimate = {
  * server-side quote command for services, so cost has to be derived client-side.
  *
  * Two corrections vs ocean-cli's estimator, both of which caused **under**-estimation:
- *  1. the `env.minJobDuration` floor clamp (`compute_engine_base.ts:943`) is applied here too;
+ *  1. the `env.minServiceDuration` floor clamp the node applies to services is applied here too
+ *     (services floor on `minServiceDuration`, distinct from compute jobs' `minJobDuration`);
  *  2. `feeToken` is matched case-insensitively for *searching*, but the env's own spelling is
  *     returned in `feeToken` — the node compares with `===`, so a re-cased copy of the user's
  *     input would pass our check and then fail at the node with `400 No pricing configured`.
@@ -148,7 +149,7 @@ export function estimateServiceCost(
   )
   if (!schedule) return null
 
-  const effectiveDurationSeconds = Math.max(durationSeconds, env.minJobDuration ?? 0)
+  const effectiveDurationSeconds = Math.max(durationSeconds, env.minServiceDuration ?? 0)
   const minutesBilled = Math.ceil(effectiveDurationSeconds / 60)
 
   const unpricedResourceIds: string[] = []

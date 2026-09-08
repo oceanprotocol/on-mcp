@@ -1,0 +1,14 @@
+apiVersion: 1
+
+providers:
+  - name: on-mcp
+    orgId: 1
+    folder: Ocean MCP
+    type: file
+    disableDeletion: false
+    # Edits made in the UI are overwritten on reload — the JSON in git is the source of truth.
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false
