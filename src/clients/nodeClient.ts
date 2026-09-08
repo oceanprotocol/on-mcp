@@ -803,7 +803,15 @@ export class NodeClient {
     timeout: number
   ): Promise<FindComputeProvidersResult> {
     try {
-      const peerId = ProviderInstance.getLibp2pNode().peerId.toString()
+      // getP2p().getLibp2pNode() is typed `Libp2p | null`, so the null case (P2P not set up)
+      // is forced into a descriptive error instead of a bare TypeError off `.peerId`.
+      // findComputeProviders itself lives on BaseProvider (ProviderInstance), not P2pProvider —
+      // its DHT walk uses the SDK's own libp2p node; the passed multiaddr is only validated, never dialed.
+      const libp2pNode = getP2p().getLibp2pNode()
+      if (!libp2pNode) {
+        throw new Error('P2P node is not initialized (setupP2P must run first)')
+      }
+      const peerId = libp2pNode.peerId.toString()
       return await ProviderInstance.findComputeProviders(`/p2p/${peerId}`, {
         ...request,
         signal: AbortSignal.timeout(timeout)
@@ -820,7 +828,7 @@ export class NodeClient {
     timeout: number
   ): Promise<NodeMetricsSnapshot | null> {
     try {
-      return await ProviderInstance.getNodeMetrics(node, AbortSignal.timeout(timeout))
+      return await getP2p().getNodeMetrics(node, AbortSignal.timeout(timeout))
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`
       throw new Error(`getNodeMetrics failed: ${message}`)
@@ -835,7 +843,7 @@ export class NodeClient {
     timeout: number
   ): Promise<NodeMetricsHistoryResult | null> {
     try {
-      return await ProviderInstance.getNodeMetricsHistory(
+      return await getP2p().getNodeMetricsHistory(
         node,
         startTime,
         stopTime,
