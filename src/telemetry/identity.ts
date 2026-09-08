@@ -4,7 +4,7 @@
  * `user.id` is a SHA-256 of `client IP + client name`, truncated to 16 hex chars. The raw IP is
  * used to compute it and immediately discarded — never stored, logged or exported. The id appears
  * on **spans only**, never as a metric label, where a per-user value would explode Mimir's
- * cardinality (plan §2, §8).
+ * cardinality.
  *
  * The hash is unsalted **by default**, deliberately. That keeps user identity stable with zero
  * configuration — nothing to provision, nothing to keep in sync across restarts or replicas, and no
@@ -31,7 +31,7 @@ import { telemetryConfig } from './config.js'
 /**
  * Clients we are willing to emit verbatim as a metric label. `clientInfo` is free text chosen by
  * the client, so an allowlist is the only thing standing between a buggy or hostile client and an
- * unbounded label set (plan §2 cardinality note).
+ * unbounded label set.
  */
 const KNOWN_CLIENTS = [
   'claude-desktop',

@@ -1,7 +1,7 @@
 /**
  * Telemetry configuration, parsed once from the environment.
  *
- * Scope is deliberately narrow (plan §3.3): telemetry is a **no-op unless the process is running
+ * Scope is deliberately narrow: telemetry is a **no-op unless the process is running
  * the hosted SSE transport AND an OTLP endpoint is configured**. The stdio transport owns stdout as
  * its JSON-RPC channel, so nothing here may ever run there — see `docs/telemetry/README.md`.
  */
@@ -174,7 +174,7 @@ let cached: TelemetryConfig | undefined
  *
  * Deliberately lives here rather than in `otel.ts`: this module is side-effect-free, so importing
  * it from `index.ts` cannot pull the OTel SDK into the import graph ahead of `express` and defeat
- * the `--import` bootstrap ordering (plan §3.3).
+ * the `--import` bootstrap ordering.
  */
 export function telemetryConfig(): TelemetryConfig {
   if (!cached) cached = loadTelemetryConfig()

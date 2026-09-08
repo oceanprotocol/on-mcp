@@ -1,5 +1,5 @@
 /**
- * Ocean-domain metrics derived from tool results (plan §3.4).
+ * Ocean-domain metrics derived from tool results.
  *
  * One map in one file rather than ~92 call-site edits. Every branch is defensive: a shape change
  * upstream must degrade to "no metric", never to a thrown error inside the tool wrapper.
@@ -154,7 +154,7 @@ export function classifyComputeJob(job: {
 /**
  * Service terminal classification. Deliberately **not** shared with `classifyComputeJob`: the two
  * vocabularies collide on the number 70, which is *success* for a compute job and *stopped* for a
- * service (plan §0.1b). `40 Running` is reported separately as the "did it ever come up" milestone
+ * service. `40 Running` is reported separately as the "did it ever come up" milestone
  * — it is a success signal, not an end state.
  */
 export function classifyServiceJob(job: {
@@ -274,6 +274,7 @@ function inspect(name: string, args: any, res: unknown): void {
     }
 
     case 'find_provider':
+    case 'find_compute_providers':
     case 'is_valid_provider': {
       const result = payload(res)
       const found = Array.isArray(result)

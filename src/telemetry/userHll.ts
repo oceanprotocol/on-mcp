@@ -3,7 +3,7 @@
  *
  * Why a sketch rather than a label: OTel metrics cannot `COUNT(DISTINCT)`, and putting a per-user
  * hash on a metric label would hand Mimir an unbounded series set. An in-process HLL collapses the
- * whole question into **three** series (day/week/month) at ~2% error (plan §2).
+ * whole question into **three** series (day/week/month) at ~2% error.
  *
  * Two properties are deliberate, documented, and must not be "fixed" silently:
  *  1. **Calendar buckets, not sliding windows.** Each window resets at its UTC boundary. A restart

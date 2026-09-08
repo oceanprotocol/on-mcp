@@ -4,7 +4,7 @@
  * Only libp2p connectivity lives here. **Heap headroom deliberately has no custom instrument**:
  * `@opentelemetry/host-metrics` already exports V8 heap used and the heap size limit (which
  * reflects `--max-old-space-size=28784`), so the used/limit ratio belongs in a Grafana recording
- * rule, not a bespoke gauge that would duplicate it (plan §2).
+ * rule, not a bespoke gauge that would duplicate it.
  */
 import { ProviderInstance } from '@oceanprotocol/lib'
 

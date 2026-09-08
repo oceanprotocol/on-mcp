@@ -7,6 +7,10 @@ import {
   type ComputeOutput,
   type ComputeResourceRequest,
   type dockerRegistryAuth,
+  type FindComputeProvidersRequest,
+  type FindComputeProvidersResult,
+  type NodeMetricsSnapshot,
+  type NodeMetricsHistoryResult,
   type PersistentStorageCreateBucketRequest,
   type ServiceJob,
   type ServiceJobListed,
@@ -51,8 +55,13 @@ async function withTimeout<T>(
   }
 }
 
-async function* singleChunkUint8(buf: Uint8Array): AsyncIterable<Uint8Array> {
-  yield buf
+/** Upload body frame size: split large files into 1 MiB P2P frames rather than one huge frame. */
+const UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+async function* chunkedUint8(buf: Uint8Array): AsyncIterable<Uint8Array> {
+  for (let off = 0; off < buf.byteLength; off += UPLOAD_CHUNK_BYTES) {
+    yield buf.subarray(off, Math.min(off + UPLOAD_CHUNK_BYTES, buf.byteLength))
+  }
 }
 
 export type CollectedStream = {
@@ -770,6 +779,7 @@ export class NodeClient {
     try {
       return (await getP2p().initializePSVerification(
         node,
+        undefined as never,
         request as never,
         AbortSignal.timeout(timeout)
       )) as T
@@ -779,22 +789,69 @@ export class NodeClient {
     }
   }
 
-  async getComputeResultUrl<T = unknown>(
-    node: NodeP2P,
-    auth: SignerOrAuthTokenOrSignature,
-    jobId: string,
-    index: number,
+  /**
+   * Typed compute-provider discovery over the DHT (`ProviderInstance.findComputeProviders`).
+   * The first `node` arg only selects the P2P transport — it is validated as a P2P-shaped
+   * identifier and never dialed; the DHT walk uses the SDK's own libp2p node. We pass a
+   * multiaddr built from our local peer id so it always satisfies that validation. Each
+   * requested dimension is an AND-intersection; surviving candidates are verified by the SDK
+   * against their real compute environments before being returned. Never throws on "nothing
+   * found" — an empty `providers` with a populated `dimensions` says which dimension was empty.
+   */
+  async findComputeProviders(
+    request: Omit<FindComputeProvidersRequest, 'signal'>,
     timeout: number
-  ): Promise<T> {
+  ): Promise<FindComputeProvidersResult> {
     try {
-      return (await withTimeout(
-        getP2p().getComputeResultUrl(node, auth, jobId, index) as Promise<T>,
-        timeout,
-        'getComputeResultUrl'
-      )) as T
+      // getP2p().getLibp2pNode() is typed `Libp2p | null`, so the null case (P2P not set up)
+      // is forced into a descriptive error instead of a bare TypeError off `.peerId`.
+      // findComputeProviders itself lives on BaseProvider (ProviderInstance), not P2pProvider —
+      // its DHT walk uses the SDK's own libp2p node; the passed multiaddr is only validated, never dialed.
+      const libp2pNode = getP2p().getLibp2pNode()
+      if (!libp2pNode) {
+        throw new Error('P2P node is not initialized (setupP2P must run first)')
+      }
+      const peerId = libp2pNode.peerId.toString()
+      return await ProviderInstance.findComputeProviders(`/p2p/${peerId}`, {
+        ...request,
+        signal: AbortSignal.timeout(timeout)
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`
-      throw new Error(`P2P getComputeResultUrl failed: ${message}`)
+      throw new Error(`findComputeProviders failed: ${message}`)
+    }
+  }
+
+  /** Live per-node resource snapshot (`getNodeMetrics`); `null` on nodes without the feature. */
+  async getNodeMetrics(
+    node: NodeP2P,
+    timeout: number
+  ): Promise<NodeMetricsSnapshot | null> {
+    try {
+      return await getP2p().getNodeMetrics(node, AbortSignal.timeout(timeout))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`getNodeMetrics failed: ${message}`)
+    }
+  }
+
+  /** Hourly averaged node metrics (`getNodeMetricsHistory`); `null` on nodes without the feature. */
+  async getNodeMetricsHistory(
+    node: NodeP2P,
+    startTime: number | undefined,
+    stopTime: number | undefined,
+    timeout: number
+  ): Promise<NodeMetricsHistoryResult | null> {
+    try {
+      return await getP2p().getNodeMetricsHistory(
+        node,
+        startTime,
+        stopTime,
+        AbortSignal.timeout(timeout)
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : `${error}`
+      throw new Error(`getNodeMetricsHistory failed: ${message}`)
     }
   }
 
@@ -838,7 +895,7 @@ export class NodeClient {
         auth,
         bucketId,
         fileName,
-        singleChunkUint8(new Uint8Array(buf)),
+        chunkedUint8(buf),
         AbortSignal.timeout(timeout)
       )) as T
     } catch (error) {

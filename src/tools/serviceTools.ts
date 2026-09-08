@@ -122,7 +122,7 @@ type CostResolution = {
 }
 
 /**
- * Shared cost path: node's arithmetic (with the minJobDuration floor) + raw-unit conversion.
+ * Shared cost path: node's arithmetic (with the minServiceDuration floor) + raw-unit conversion.
  * Throws with an actionable message when the env has no schedule for `(chainId, token)`.
  */
 async function resolveCost(params: {
@@ -290,6 +290,9 @@ function describeServiceEnv(
     consumerAddress: env.consumerAddress,
     minJobDuration: env.minJobDuration,
     maxJobDuration: env.maxJobDuration,
+    /** Service-specific duration bounds (advertised since ocean-node's service duration support). */
+    minServiceDuration: env.minServiceDuration,
+    maxServiceDuration: env.maxServiceDuration,
     ...(opts.chainId !== undefined ? { feeTokensOnChain: feeTokens } : {}),
     freeResources: (env.resources ?? []).map((r) => ({
       id: r.id,
@@ -379,9 +382,10 @@ ${SERVICE_OVERVIEW_GUIDE}`,
           eligibleCount: described.filter((e) => e.eligible).length,
           note:
             'eligible = advertised as service-capable AND priced AND has capacity. The node ' +
-            'is authoritative; see the advisory note in the tool description. Service duration ' +
-            'is additionally capped by serviceOnDemand.maxDurationSeconds (node config, default ' +
-            '86400s) which is NOT advertised here.'
+            'is authoritative; see the advisory note in the tool description. Service billing ' +
+            'floors at env.minServiceDuration and duration is capped at env.maxServiceDuration ' +
+            '(both advertised above when present); a lower serviceOnDemand.maxDurationSeconds ' +
+            'node-config cap (default 86400s) may still apply and is NOT advertised here.'
         })
       } catch (error) {
         return errorPayload(stringifyError(error))
@@ -535,7 +539,7 @@ An **empty list is normal** on a fully working node (the node just reads a folde
       title: 'Services: estimate cost and build an escrow payment object',
       description: `Client-side cost **estimate** for a service, plus a ready-made \`payment\` object you can hand straight to **escrow_preflight**. **No auth**, no chain writes.
 
-**There is no server-side quote for services** (no \`initializeService\`), so this reimplements ocean-node's own arithmetic — \`price(resourceId) × amount × ceil(effectiveDuration / 60)\`, where \`effectiveDuration = max(duration, env.minJobDuration)\`. The node computes its own figure at start time and that one is authoritative: never tell a user a service "will cost X".
+**There is no server-side quote for services** (no \`initializeService\`), so this reimplements ocean-node's own arithmetic — \`price(resourceId) × amount × ceil(effectiveDuration / 60)\`, where \`effectiveDuration = max(duration, env.minServiceDuration)\`. The node computes its own figure at start time and that one is authoritative: never tell a user a service "will cost X".
 
 Returns \`payment{escrowAddress, chainId, payee, token, amount, minLockSeconds}\` with \`amount\` as a **decimal string** of raw base units (an 18-decimal amount exceeds \`Number.MAX_SAFE_INTEGER\`). Feed it to \`escrow_preflight\` with \`maxJobDuration = duration\`.
 
@@ -623,7 +627,7 @@ ${SERVICE_PAYMENT_GUIDE}`,
         const warnings: string[] = []
         if (cost.effectiveDurationSeconds !== duration) {
           warnings.push(
-            `Billed duration was clamped up to the env's minJobDuration: requested ${duration}s, ` +
+            `Billed duration was clamped up to the env's minServiceDuration: requested ${duration}s, ` +
               `billed ${cost.effectiveDurationSeconds}s (${cost.minutesBilled} minute(s)).`
           )
         }
@@ -707,7 +711,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
           .int()
           .positive()
           .describe(
-            "Seconds to keep the service up and pay for. Capped by the node's serviceOnDemand.maxDurationSeconds (default 86400s, not advertised). The resource reservation is held for this whole window even if you stop early."
+            'Seconds to keep the service up and pay for. Must be ≤ env.maxServiceDuration (advertised; rejected client-side when exceeded) and is also billed at a floor of env.minServiceDuration. A stricter serviceOnDemand.maxDurationSeconds node-config cap (default 86400s) may still apply and is not advertised. The resource reservation is held for this whole window even if you stop early.'
           ),
         payment: servicePaymentSchema,
         parallelJobs: z
@@ -758,6 +762,17 @@ ${P2P_AUTH_SIGNING_GUIDE}
           return errorPayload(
             `Environment "${env.id}" sets features.services = false — SERVICE_START will return 403. ` +
               `Use findServiceEnvironments to pick a service-capable env.`
+          )
+        }
+        if (
+          env.maxServiceDuration !== undefined &&
+          args.duration > env.maxServiceDuration
+        ) {
+          return errorPayload(
+            `duration ${args.duration}s exceeds env "${env.id}" maxServiceDuration ` +
+              `(${env.maxServiceDuration}s) — SERVICE_START would 400. Lower duration to ` +
+              `≤ ${env.maxServiceDuration}s. (A stricter serviceOnDemand.maxDurationSeconds ` +
+              `node-config cap may also apply.)`
           )
         }
 
@@ -987,7 +1002,7 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
 
 Node-side failure modes worth surfacing to the user:
 - only **\`Starting\`/\`Running\`** services are extendable;
-- \`remainingSeconds + additionalDuration ≤ serviceOnDemand.maxDurationSeconds\` (node config, default 86400s, not advertised);
+- \`remainingSeconds + additionalDuration\` must fit the env's advertised \`maxServiceDuration\` (from \`findServiceEnvironments\`), and a stricter \`serviceOnDemand.maxDurationSeconds\` node-config cap (default 86400s, not advertised) may still apply;
 - the **access list is re-checked** — a consumer removed from the env's allow-list cannot extend;
 - pricing can be **removed mid-service** → \`400\`;
 - a crashed prior extension that could not be auto-refunded → **\`409\`**.

@@ -88,11 +88,11 @@ export const SERVICE_PAYMENT_GUIDE = `## Paying for a service — there is no se
 4. **serviceStart**. It re-runs the same gate and refuses to start when escrow cannot back the service (bypass with \`skipEscrowPreflight: true\`).
 
 **Caveats that make the estimate an estimate, not a promise:**
-- The node applies an \`env.minJobDuration\` **floor**: a 30s service on an env with \`minJobDuration: 60\` is billed for 60s. \`estimateServiceCost\` applies the same clamp — \`minutesBilled\` may exceed your requested duration.
+- The node applies an \`env.minServiceDuration\` **floor**: a 30s service on an env with \`minServiceDuration: 60\` is billed for 60s. \`estimateServiceCost\` applies the same clamp — \`minutesBilled\` may exceed your requested duration.
 - The node matches \`feeToken\` **exactly and case-sensitively**. \`estimateServiceCost\` searches case-insensitively but echoes \`payment.token\` back **verbatim as the env advertised it** — send that value through unchanged, never a re-cased copy.
 - An unknown resource id is silently priced at **0** by the node, so a typo'd resource looks free.
 - \`payment.minLockSeconds\` is a **padded estimate**: the node's rule is \`duration + claimDurationTimeout\`, and \`claimDurationTimeout\` is per-node config (default 3600s) that **no protocol command exposes**. On a node that raised it, a lock can still fail after this check passes.
-- The service duration cap is \`serviceOnDemand.maxDurationSeconds\` (node config, default 86400s) and is **not advertised** — an over-long \`duration\` fails at start with a \`400\`.
+- The service duration cap is \`env.maxServiceDuration\` (**advertised** on the env; \`serviceStart\` rejects an over-long \`duration\` client-side). A stricter \`serviceOnDemand.maxDurationSeconds\` node-config cap (default 86400s) may still apply and is **not advertised** — if so, an over-long \`duration\` fails at start with a \`400\`.
 
 **Never self-denominate raw amounts.** Call \`get_erc20_token_info(chainId, token, rawAmount)\` and show \`<formatted> <symbol>\` before telling the user a price.`
 
