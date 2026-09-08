@@ -15,6 +15,8 @@
 # Optional:
 #   GRAFANA_FOLDER_UID   target folder (default: the "General" folder)
 #   DASHBOARD_FILE       path to the dashboard JSON
+#   PROM_UID / TEMPO_UID   datasource uid, used verbatim (skips lookup)
+#   PROM_NAME / TEMPO_NAME datasource name to match, when several of a type exist
 
 set -euo pipefail
 
@@ -37,16 +39,69 @@ fi
 
 # The dashboard declares DS_PROMETHEUS / DS_TEMPO datasource variables. Resolve them to the
 # datasource UIDs on the target Grafana so the imported copy is immediately usable.
+#
+# Resolution is deliberately not "pick the first one": a shared Grafana (the very case this script
+# exists for) routinely has several Prometheus datasources, and silently grabbing whichever the API
+# lists first points the dashboard at the wrong backend. The tiers below fail loudly on ambiguity
+# instead — override with PROM_UID / TEMPO_UID (exact) or PROM_NAME / TEMPO_NAME (by name).
 PROM_UID="${PROM_UID:-}"
 TEMPO_UID="${TEMPO_UID:-}"
 
-lookup_uid() { # type -> first matching datasource uid
+# resolve_uid TYPE WANTED_NAME
+#   Prints the resolved uid on stdout, or empty when no datasource of TYPE exists (caller decides
+#   whether that is fatal). Exits non-zero — after a diagnostic on stderr — when the choice is
+#   ambiguous or a requested name does not match, so `$(...) || exit 1` at the call site stops here.
+resolve_uid() {
   curl -fsS -H "Authorization: Bearer $GRAFANA_TOKEN" "$GRAFANA_URL/api/datasources" \
-    | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s);const m=j.find(d=>d.type==='$1');console.log(m?m.uid:'')}catch{console.log('')}})"
+    | DS_TYPE="$1" WANT_NAME="${2:-}" node -e '
+      let s = ""
+      process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        const type = process.env.DS_TYPE
+        const want = (process.env.WANT_NAME || "").trim()
+        const envPrefix = type === "prometheus" ? "PROM" : "TEMPO"
+        let list
+        try { list = JSON.parse(s) } catch {
+          process.stderr.write(`could not parse ${process.env.GRAFANA_URL}/api/datasources response\n`)
+          process.exit(2)
+        }
+        const cands = Array.isArray(list) ? list.filter((d) => d.type === type) : []
+        const show = () =>
+          cands.map((d) => `    - ${d.name} (uid=${d.uid}${d.isDefault ? ", default" : ""})`).join("\n") ||
+          "    (none)"
+
+        // Tier 2 — explicit name (exact, case-insensitive).
+        if (want) {
+          const m = cands.filter((d) => String(d.name).toLowerCase() === want.toLowerCase())
+          if (m.length === 1) return void process.stdout.write(m[0].uid)
+          process.stderr.write(
+            `${m.length === 0 ? "no" : "multiple"} ${type} datasource(s) named "${want}". Candidates:\n${show()}\n`
+          )
+          return void process.exit(3)
+        }
+
+        if (cands.length === 0) return void process.stdout.write("") // none: caller decides
+        if (cands.length === 1) return void process.stdout.write(cands[0].uid)
+
+        // Tier 3 — the datasource marked default.
+        const def = cands.filter((d) => d.isDefault)
+        if (def.length === 1) return void process.stdout.write(def[0].uid)
+
+        // Tier 5 — ambiguous: refuse to guess.
+        process.stderr.write(
+          `multiple ${type} datasources on ${process.env.GRAFANA_URL}; ` +
+            `set ${envPrefix}_UID or ${envPrefix}_NAME to pick one. Candidates:\n${show()}\n`
+        )
+        process.exit(4)
+      })
+    '
 }
 
-[ -z "$PROM_UID" ] && PROM_UID=$(lookup_uid prometheus)
-[ -z "$TEMPO_UID" ] && TEMPO_UID=$(lookup_uid tempo)
+if [ -z "$PROM_UID" ]; then
+  PROM_UID=$(resolve_uid prometheus "${PROM_NAME:-}") || exit 1
+fi
+if [ -z "$TEMPO_UID" ]; then
+  TEMPO_UID=$(resolve_uid tempo "${TEMPO_NAME:-}") || exit 1
+fi
 
 if [ -z "$PROM_UID" ]; then
   echo "No Prometheus datasource found on $GRAFANA_URL — add one first, or set PROM_UID." >&2

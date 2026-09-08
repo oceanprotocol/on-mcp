@@ -47,7 +47,10 @@ export function initTelemetry(
       'service.name': config.serviceName,
       'service.version': config.serviceVersion,
       'deployment.environment': config.environment,
-      'service.instance.id': randomUUID()
+      'service.instance.id': randomUUID(),
+      // Optional, so a central Collector shared with ocean-node / ocean-node-bootstrap fleets can
+      // group series by network. Omitted entirely when unset rather than emitted as an empty string.
+      ...(config.networkLabel ? { 'ocean.network': config.networkLabel } : {})
     })
 
     sdk = new NodeSDK({

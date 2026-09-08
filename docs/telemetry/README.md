@@ -249,6 +249,7 @@ blockage would blame payment friction for an infrastructure problem — and surf
 | `OTEL_SERVICE_NAME` | `ocean-mcp` | Resource attribute |
 | `OTEL_SERVICE_VERSION` | `0.0.1` | Resource attribute |
 | `DEPLOYMENT_ENVIRONMENT` | `NODE_ENV` | `production` / `staging` / … |
+| `OCEAN_NETWORK_LABEL` | *(unset)* | Optional `ocean.network` resource attribute. Set it to group this server with `ocean-node` / `ocean-node-bootstrap` fleets in a shared central Collector |
 | `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metric flush interval (ms) |
 | `OTEL_TRACES_SAMPLER` / `_ARG` | `parentbased_always_on` | Turn down under load |
 | `TRUST_PROXY` | `loopback` | Express trust-proxy — **must match your topology**, see below |
@@ -427,6 +428,19 @@ GRAFANA_TOKEN=glsa_xxx \
 
 The script resolves your Prometheus and Tempo datasource UIDs automatically and binds the
 dashboard's `DS_PROMETHEUS` / `DS_TEMPO` variables to them.
+
+Resolution prefers, in order: an explicit uid, a name match, the datasource marked default, then a
+sole candidate. On a shared or Grafana Cloud instance with **several** datasources of one type it
+refuses to guess and lists the candidates — pick one with `PROM_NAME` / `TEMPO_NAME` (by name) or
+`PROM_UID` / `TEMPO_UID` (exact uid):
+
+```bash
+GRAFANA_URL=https://your-org.grafana.net \
+GRAFANA_TOKEN=glsa_xxx \
+PROM_NAME="Prometheus (prod)" \
+TEMPO_NAME="Tempo (prod)" \
+./scripts/telemetry/import-dashboard.sh
+```
 
 To mint the token: Grafana → Administration → Users and access → Service accounts → Add service
 account → role **Editor** → Add service account token.
