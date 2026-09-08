@@ -20,7 +20,13 @@ export type TelemetryConfig = {
   serviceName: string
   serviceVersion: string
   environment: string
-  /** Experimental: fold the client source port into `user.id` (leave off). */
+  /**
+   * Optional `ocean.network` resource attribute (from `OCEAN_NETWORK_LABEL`), so a central
+   * Collector shared with `ocean-node` / `ocean-node-bootstrap` fleets can group series by network.
+   * Undefined by default — absent from the resource rather than emitted empty.
+   */
+  networkLabel?: string
+  /** Experimental: fold the client source port into `user.id` (plan §2 — leave off). */
   includePortInUserId: boolean
   /**
    * Optional secret mixed into `user.id`. **Absent by default, and the default is unsalted.**
@@ -125,6 +131,7 @@ export function loadTelemetryConfig(
     serviceName: env.OTEL_SERVICE_NAME ?? 'ocean-mcp',
     serviceVersion: env.OTEL_SERVICE_VERSION ?? '0.0.1',
     environment: env.DEPLOYMENT_ENVIRONMENT ?? env.NODE_ENV ?? 'development',
+    networkLabel: env.OCEAN_NETWORK_LABEL?.trim() || undefined,
     includePortInUserId: readBool(env.MCP_TELEMETRY_USER_ID_INCLUDE_PORT, false),
     userIdSalt: env.MCP_TELEMETRY_USER_ID_SALT?.trim() || undefined,
     trustProxy: parseTrustProxy(env.TRUST_PROXY)
