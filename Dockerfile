@@ -43,4 +43,9 @@ USER app
 EXPOSE 3000
 
 # Sync docs content, then start the MCP server.
-CMD ["sh", "-lc", "node scripts/sync-docs-content.js && node --max-old-space-size=28784 --trace-warnings --experimental-specifier-resolution=node dist/index.js"]
+#
+# `--import ./dist/telemetry/otel.js` bootstraps the OpenTelemetry SDK *before* express/http are
+# imported (see docs/telemetry/README.md and the `start` script). Without it no MeterProvider is
+# registered, every instrument is a silent no-op, and nothing is exported — telemetry env vars and
+# MCP_TRANSPORT=sse notwithstanding. It self-disables on the stdio path, so it is always safe here.
+CMD ["sh", "-lc", "node scripts/sync-docs-content.js && node --import ./dist/telemetry/otel.js --max-old-space-size=1536 --trace-warnings --experimental-specifier-resolution=node dist/index.js"]

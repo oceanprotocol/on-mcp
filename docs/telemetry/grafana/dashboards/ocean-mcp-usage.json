@@ -71,7 +71,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max_over_time(mcp_users_active_estimate{window=\"day\"}[$__range])",
+          "expr": "max_over_time(mcp_users_active_estimate{service_name=\"ocean-mcp\",window=\"day\"}[$__range])",
           "legendFormat": "unique users (day, lower bound)",
           "range": true,
           "instant": false,
@@ -83,7 +83,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_sessions_started_total[$__range]))",
+          "expr": "sum(increase(mcp_sessions_started_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "unique sessions (upper bound)",
           "range": true,
           "instant": false,
@@ -148,7 +148,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max_over_time(mcp_users_active_estimate{window=\"day\"}[$__range])",
+          "expr": "max_over_time(mcp_users_active_estimate{service_name=\"ocean-mcp\",window=\"day\"}[$__range])",
           "legendFormat": "DAU",
           "range": false,
           "instant": true,
@@ -160,7 +160,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max_over_time(mcp_users_active_estimate{window=\"week\"}[$__range])",
+          "expr": "max_over_time(mcp_users_active_estimate{service_name=\"ocean-mcp\",window=\"week\"}[$__range])",
           "legendFormat": "WAU",
           "range": false,
           "instant": true,
@@ -172,7 +172,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "max_over_time(mcp_users_active_estimate{window=\"month\"}[$__range])",
+          "expr": "max_over_time(mcp_users_active_estimate{service_name=\"ocean-mcp\",window=\"month\"}[$__range])",
           "legendFormat": "MAU",
           "range": false,
           "instant": true,
@@ -234,7 +234,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (client_name) (mcp_sessions_active)",
+          "expr": "sum by (client_name) (mcp_sessions_active{service_name=\"ocean-mcp\"})",
           "legendFormat": "{{client_name}}",
           "range": true,
           "instant": false,
@@ -300,7 +300,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_session_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_session_duration_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "range": true,
           "instant": false,
@@ -312,7 +312,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_session_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_session_duration_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "instant": false,
@@ -324,7 +324,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mcp_session_duration_seconds_sum[$__rate_interval])) / clamp_min(sum(rate(mcp_session_duration_seconds_count[$__rate_interval])), 0.0001)",
+          "expr": "sum(rate(mcp_session_duration_seconds_sum{service_name=\"ocean-mcp\"}[$__rate_interval])) / clamp_min(sum(rate(mcp_session_duration_seconds_count{service_name=\"ocean-mcp\"}[$__rate_interval])), 0.0001)",
           "legendFormat": "mean",
           "range": true,
           "instant": false,
@@ -389,7 +389,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_sessions_empty_total[$__range])) / clamp_min(sum(increase(mcp_sessions_started_total[$__range])), 0.0001)",
+          "expr": "sum(increase(mcp_sessions_empty_total{service_name=\"ocean-mcp\"}[$__range])) / clamp_min(sum(increase(mcp_sessions_started_total{service_name=\"ocean-mcp\"}[$__range])), 0.0001)",
           "legendFormat": "bounce",
           "range": false,
           "instant": true,
@@ -460,7 +460,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mcp_session_tool_calls_sum[$__range])) / clamp_min(sum(rate(mcp_session_tool_calls_count[$__range])), 0.0001)",
+          "expr": "sum(rate(mcp_session_tool_calls_sum{service_name=\"ocean-mcp\"}[$__range])) / clamp_min(sum(rate(mcp_session_tool_calls_count{service_name=\"ocean-mcp\"}[$__range])), 0.0001)",
           "legendFormat": "calls / session",
           "range": false,
           "instant": true,
@@ -472,7 +472,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mcp_session_distinct_tools_sum[$__range])) / clamp_min(sum(rate(mcp_session_distinct_tools_count[$__range])), 0.0001)",
+          "expr": "sum(rate(mcp_session_distinct_tools_sum{service_name=\"ocean-mcp\"}[$__range])) / clamp_min(sum(rate(mcp_session_distinct_tools_count{service_name=\"ocean-mcp\"}[$__range])), 0.0001)",
           "legendFormat": "distinct tools / session",
           "range": false,
           "instant": true,
@@ -535,7 +535,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (client_name) (increase(mcp_sessions_started_total[$__range]))",
+          "expr": "sum by (client_name) (increase(mcp_sessions_started_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{client_name}}",
           "range": false,
           "instant": true,
@@ -588,7 +588,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (client_name, client_version) (increase(mcp_sessions_started_total[$__range]))",
+          "expr": "sum by (client_name, client_version) (increase(mcp_sessions_started_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{client_name}} {{client_version}}",
           "range": false,
           "instant": true,
@@ -654,7 +654,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (tool_name) (increase(mcp_tool_calls_total[$__range])))",
+          "expr": "topk(15, sum by (tool_name) (increase(mcp_tool_calls_total{service_name=\"ocean-mcp\"}[$__range])))",
           "legendFormat": "{{tool_name}}",
           "range": false,
           "instant": true,
@@ -707,7 +707,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (tool_category) (rate(mcp_tool_calls_total[$__rate_interval]))",
+          "expr": "sum by (tool_category) (rate(mcp_tool_calls_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "{{tool_category}}",
           "range": true,
           "instant": false,
@@ -772,7 +772,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{waited!=\"true\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{service_name=\"ocean-mcp\",waited!=\"true\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "range": true,
           "instant": false,
@@ -784,7 +784,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{waited!=\"true\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{service_name=\"ocean-mcp\",waited!=\"true\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "instant": false,
@@ -796,7 +796,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{waited!=\"true\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{service_name=\"ocean-mcp\",waited!=\"true\"}[$__rate_interval])))",
           "legendFormat": "p99",
           "range": true,
           "instant": false,
@@ -861,7 +861,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "topk(10, histogram_quantile(0.95, sum by (le, tool_name) (rate(mcp_tool_duration_milliseconds_bucket{waited!=\"true\"}[$__rate_interval]))))",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, tool_name) (rate(mcp_tool_duration_milliseconds_bucket{service_name=\"ocean-mcp\",waited!=\"true\"}[$__rate_interval]))))",
           "legendFormat": "{{tool_name}}",
           "range": true,
           "instant": false,
@@ -926,7 +926,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (error_type) (rate(mcp_tool_calls_total{status=\"error\"}[$__rate_interval]))",
+          "expr": "sum by (error_type) (rate(mcp_tool_calls_total{service_name=\"ocean-mcp\",status=\"error\"}[$__rate_interval]))",
           "legendFormat": "{{error_type}}",
           "range": true,
           "instant": false,
@@ -991,7 +991,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "topk(15, sum by (tool_name) (increase(mcp_tool_calls_total{status=\"error\"}[$__range])) / clamp_min(sum by (tool_name) (increase(mcp_tool_calls_total[$__range])), 0.0001))",
+          "expr": "topk(15, sum by (tool_name) (increase(mcp_tool_calls_total{service_name=\"ocean-mcp\",status=\"error\"}[$__range])) / clamp_min(sum by (tool_name) (increase(mcp_tool_calls_total{service_name=\"ocean-mcp\"}[$__range])), 0.0001))",
           "legendFormat": "{{tool_name}}",
           "range": false,
           "instant": true,
@@ -1046,7 +1046,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mcp_tool_calls_total{status=\"error\"}[$__rate_interval])) / clamp_min(sum(rate(mcp_tool_calls_total[$__rate_interval])), 0.0001)",
+          "expr": "sum(rate(mcp_tool_calls_total{service_name=\"ocean-mcp\",status=\"error\"}[$__rate_interval])) / clamp_min(sum(rate(mcp_tool_calls_total{service_name=\"ocean-mcp\"}[$__rate_interval])), 0.0001)",
           "legendFormat": "error rate",
           "range": false,
           "instant": true,
@@ -1130,7 +1130,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (paid) (rate(mcp_compute_jobs_started_total[$__rate_interval]))",
+          "expr": "sum by (paid) (rate(mcp_compute_jobs_started_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "paid={{paid}}",
           "range": true,
           "instant": false,
@@ -1195,7 +1195,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (job_status) (rate(mcp_compute_jobs_observed_total[$__rate_interval]))",
+          "expr": "sum by (job_status) (rate(mcp_compute_jobs_observed_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "{{job_status}}",
           "range": true,
           "instant": false,
@@ -1260,7 +1260,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (chain_id) (increase(mcp_chain_usage_total[$__range]))",
+          "expr": "sum by (chain_id) (increase(mcp_chain_usage_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "chain {{chain_id}}",
           "range": false,
           "instant": true,
@@ -1313,7 +1313,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (caller, result) (rate(mcp_escrow_preflight_total[$__rate_interval]))",
+          "expr": "sum by (caller, result) (rate(mcp_escrow_preflight_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "{{caller}} \u2014 {{result}}",
           "range": true,
           "instant": false,
@@ -1394,7 +1394,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_tool_calls_total{tool_name=\"initializeCompute\",status=\"ok\"}[$__range]))",
+          "expr": "sum(increase(mcp_tool_calls_total{service_name=\"ocean-mcp\",tool_name=\"initializeCompute\",status=\"ok\"}[$__range]))",
           "legendFormat": "1. initializeCompute",
           "range": false,
           "instant": true,
@@ -1406,7 +1406,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_escrow_preflight_total{caller=\"compute_gate\"}[$__range]))",
+          "expr": "sum(increase(mcp_escrow_preflight_total{service_name=\"ocean-mcp\",caller=\"compute_gate\"}[$__range]))",
           "legendFormat": "2. escrow gate",
           "range": false,
           "instant": true,
@@ -1418,7 +1418,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_escrow_preflight_total{caller=\"compute_gate\",result=\"ready\"}[$__range]))",
+          "expr": "sum(increase(mcp_escrow_preflight_total{service_name=\"ocean-mcp\",caller=\"compute_gate\",result=\"ready\"}[$__range]))",
           "legendFormat": "3. escrow ready",
           "range": false,
           "instant": true,
@@ -1430,7 +1430,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_compute_jobs_started_total{paid=\"true\"}[$__range]))",
+          "expr": "sum(increase(mcp_compute_jobs_started_total{service_name=\"ocean-mcp\",paid=\"true\"}[$__range]))",
           "legendFormat": "4. job started",
           "range": false,
           "instant": true,
@@ -1483,7 +1483,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_auth_tokens_created_total[$__range]))",
+          "expr": "sum(increase(mcp_auth_tokens_created_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "tokens",
           "range": false,
           "instant": true,
@@ -1545,7 +1545,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_p2p_provider_lookup_total{found=\"true\"}[$__range])) / clamp_min(sum(increase(mcp_p2p_provider_lookup_total[$__range])), 0.0001)",
+          "expr": "sum(increase(mcp_p2p_provider_lookup_total{service_name=\"ocean-mcp\",found=\"true\"}[$__range])) / clamp_min(sum(increase(mcp_p2p_provider_lookup_total{service_name=\"ocean-mcp\"}[$__range])), 0.0001)",
           "legendFormat": "hit rate",
           "range": false,
           "instant": true,
@@ -1616,7 +1616,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_docs_search_total{result_hit=\"true\"}[$__range])) / clamp_min(sum(increase(mcp_docs_search_total[$__range])), 0.0001)",
+          "expr": "sum(increase(mcp_docs_search_total{service_name=\"ocean-mcp\",result_hit=\"true\"}[$__range])) / clamp_min(sum(increase(mcp_docs_search_total{service_name=\"ocean-mcp\"}[$__range])), 0.0001)",
           "legendFormat": "hit rate",
           "range": false,
           "instant": true,
@@ -1687,7 +1687,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (outcome) (increase(mcp_escrow_autofix_total[$__range]))",
+          "expr": "sum by (outcome) (increase(mcp_escrow_autofix_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{outcome}}",
           "range": false,
           "instant": true,
@@ -1740,7 +1740,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "topk(10, sum by (tool_name) (increase(mcp_incentives_calls_total[$__range])))",
+          "expr": "topk(10, sum by (tool_name) (increase(mcp_incentives_calls_total{service_name=\"ocean-mcp\"}[$__range])))",
           "legendFormat": "{{tool_name}}",
           "range": false,
           "instant": true,
@@ -1806,7 +1806,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_service_observed_total{service_status=\"running\"}[$__range])) / clamp_min(sum(increase(mcp_service_started_total[$__range])), 0.0001)",
+          "expr": "sum(increase(mcp_service_observed_total{service_name=\"ocean-mcp\",service_status=\"running\"}[$__range])) / clamp_min(sum(increase(mcp_service_started_total{service_name=\"ocean-mcp\"}[$__range])), 0.0001)",
           "legendFormat": "reached Running",
           "range": false,
           "instant": true,
@@ -1877,7 +1877,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_service_cost_estimates_total[$__range]))",
+          "expr": "sum(increase(mcp_service_cost_estimates_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "1. cost estimated",
           "range": false,
           "instant": true,
@@ -1889,7 +1889,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_escrow_preflight_total{caller=\"service_gate\"}[$__range]))",
+          "expr": "sum(increase(mcp_escrow_preflight_total{service_name=\"ocean-mcp\",caller=\"service_gate\"}[$__range]))",
           "legendFormat": "2. escrow gate",
           "range": false,
           "instant": true,
@@ -1901,7 +1901,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_service_started_total[$__range]))",
+          "expr": "sum(increase(mcp_service_started_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "3. start accepted",
           "range": false,
           "instant": true,
@@ -1913,7 +1913,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_service_observed_total{service_status=\"running\"}[$__range]))",
+          "expr": "sum(increase(mcp_service_observed_total{service_name=\"ocean-mcp\",service_status=\"running\"}[$__range]))",
           "legendFormat": "4. reached Running",
           "range": false,
           "instant": true,
@@ -1966,7 +1966,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (service_status) (rate(mcp_service_observed_total[$__rate_interval]))",
+          "expr": "sum by (service_status) (rate(mcp_service_observed_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "{{service_status}}",
           "range": true,
           "instant": false,
@@ -2031,7 +2031,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (image_mode) (increase(mcp_service_started_total[$__range]))",
+          "expr": "sum by (image_mode) (increase(mcp_service_started_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{image_mode}}",
           "range": false,
           "instant": true,
@@ -2084,7 +2084,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (action) (increase(mcp_service_lifecycle_total[$__range]))",
+          "expr": "sum by (action) (increase(mcp_service_lifecycle_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{action}}",
           "range": false,
           "instant": true,
@@ -2137,7 +2137,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{tool_name=\"serviceStatus\",waited=\"false\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{service_name=\"ocean-mcp\",tool_name=\"serviceStatus\",waited=\"false\"}[$__rate_interval])))",
           "legendFormat": "p95 normal",
           "range": true,
           "instant": false,
@@ -2149,7 +2149,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{tool_name=\"serviceStatus\",waited=\"true\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_tool_duration_milliseconds_bucket{service_name=\"ocean-mcp\",tool_name=\"serviceStatus\",waited=\"true\"}[$__rate_interval])))",
           "legendFormat": "p95 waiting",
           "range": true,
           "instant": false,
@@ -2227,7 +2227,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "mcp_p2p_connected_peers",
+          "expr": "mcp_p2p_connected_peers{service_name=\"ocean-mcp\"}",
           "legendFormat": "connections",
           "range": true,
           "instant": false,
@@ -2358,7 +2358,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "nodejs_eventloop_delay_p99_seconds",
+          "expr": "nodejs_eventloop_delay_p99_seconds{service_name=\"ocean-mcp\"}",
           "legendFormat": "p99",
           "range": true,
           "instant": false,
@@ -2423,7 +2423,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count[$__rate_interval]))",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "{{http_response_status_code}}",
           "range": true,
           "instant": false,
@@ -2488,7 +2488,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "instant": false,
@@ -2566,7 +2566,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (increase(mcp_asset_order_total[$__range]))",
+          "expr": "sum by (status) (increase(mcp_asset_order_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{status}}",
           "range": false,
           "instant": true,
@@ -2619,7 +2619,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_asset_order_total{status=\"complete\"}[$__range])) / clamp_min(sum(increase(mcp_asset_order_total{status=\"needs_broadcast\"}[$__range])), 0.0001)",
+          "expr": "sum(increase(mcp_asset_order_total{service_name=\"ocean-mcp\",status=\"complete\"}[$__range])) / clamp_min(sum(increase(mcp_asset_order_total{service_name=\"ocean-mcp\",status=\"needs_broadcast\"}[$__range])), 0.0001)",
           "legendFormat": "completed",
           "range": false,
           "instant": true,
@@ -2690,7 +2690,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (rate(mcp_asset_downloads_total[$__rate_interval]))",
+          "expr": "sum by (status) (rate(mcp_asset_downloads_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "download {{status}}",
           "range": true,
           "instant": false,
@@ -2702,7 +2702,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (rate(mcp_asset_fee_quotes_total[$__rate_interval]))",
+          "expr": "sum by (status) (rate(mcp_asset_fee_quotes_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "fee quote {{status}}",
           "range": true,
           "instant": false,
@@ -2767,7 +2767,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(increase(mcp_ddo_resolve_total{found=\"true\"}[$__range])) / clamp_min(sum(increase(mcp_ddo_resolve_total[$__range])), 0.0001)",
+          "expr": "sum(increase(mcp_ddo_resolve_total{service_name=\"ocean-mcp\",found=\"true\"}[$__range])) / clamp_min(sum(increase(mcp_ddo_resolve_total{service_name=\"ocean-mcp\"}[$__range])), 0.0001)",
           "legendFormat": "hit rate",
           "range": false,
           "instant": true,
@@ -2838,7 +2838,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (operation, found) (rate(mcp_ddo_resolve_total[$__rate_interval]))",
+          "expr": "sum by (operation, found) (rate(mcp_ddo_resolve_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "{{operation}} found={{found}}",
           "range": true,
           "instant": false,
@@ -2903,7 +2903,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (action) (increase(mcp_escrow_tx_built_total[$__range]))",
+          "expr": "sum by (action) (increase(mcp_escrow_tx_built_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{action}}",
           "range": false,
           "instant": true,
@@ -2969,7 +2969,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (reason) (rate(mcp_transport_rejected_total[$__rate_interval]))",
+          "expr": "sum by (reason) (rate(mcp_transport_rejected_total{service_name=\"ocean-mcp\"}[$__rate_interval]))",
           "legendFormat": "{{reason}}",
           "range": true,
           "instant": false,
@@ -3034,7 +3034,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_session_time_to_first_call_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_session_time_to_first_call_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "range": true,
           "instant": false,
@@ -3046,7 +3046,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_session_time_to_first_call_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_session_time_to_first_call_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "instant": false,
@@ -3111,7 +3111,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (error_type) (rate(mcp_tool_calls_total{status=\"error\"}[$__rate_interval]))",
+          "expr": "sum by (error_type) (rate(mcp_tool_calls_total{service_name=\"ocean-mcp\",status=\"error\"}[$__rate_interval]))",
           "legendFormat": "{{error_type}}",
           "range": true,
           "instant": false,
@@ -3176,7 +3176,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mcp_tool_calls_total{status=\"error\",error_type=\"auth\"}[$__rate_interval])) / clamp_min(sum(rate(mcp_tool_calls_total{status=\"error\"}[$__rate_interval])), 0.0001)",
+          "expr": "sum(rate(mcp_tool_calls_total{service_name=\"ocean-mcp\",status=\"error\",error_type=\"auth\"}[$__rate_interval])) / clamp_min(sum(rate(mcp_tool_calls_total{service_name=\"ocean-mcp\",status=\"error\"}[$__rate_interval])), 0.0001)",
           "legendFormat": "auth share",
           "range": false,
           "instant": true,
@@ -3247,7 +3247,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (action) (increase(mcp_storage_operations_total[$__range]))",
+          "expr": "sum by (action) (increase(mcp_storage_operations_total{service_name=\"ocean-mcp\"}[$__range]))",
           "legendFormat": "{{action}}",
           "range": false,
           "instant": true,
@@ -3313,7 +3313,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_compute_job_observed_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_compute_job_observed_duration_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "range": true,
           "instant": false,
@@ -3325,7 +3325,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_compute_job_observed_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_compute_job_observed_duration_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "instant": false,
@@ -3390,7 +3390,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_service_time_to_running_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(mcp_service_time_to_running_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p50",
           "range": true,
           "instant": false,
@@ -3402,7 +3402,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_service_time_to_running_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(mcp_service_time_to_running_seconds_bucket{service_name=\"ocean-mcp\"}[$__rate_interval])))",
           "legendFormat": "p95",
           "range": true,
           "instant": false,
@@ -3467,7 +3467,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mcp_compute_job_polls_sum[$__rate_interval])) / clamp_min(sum(rate(mcp_compute_job_polls_count[$__rate_interval])), 0.0001)",
+          "expr": "sum(rate(mcp_compute_job_polls_sum{service_name=\"ocean-mcp\"}[$__rate_interval])) / clamp_min(sum(rate(mcp_compute_job_polls_count{service_name=\"ocean-mcp\"}[$__rate_interval])), 0.0001)",
           "legendFormat": "compute polls/job",
           "range": true,
           "instant": false,
@@ -3479,7 +3479,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mcp_service_polls_sum[$__rate_interval])) / clamp_min(sum(rate(mcp_service_polls_count[$__rate_interval])), 0.0001)",
+          "expr": "sum(rate(mcp_service_polls_sum{service_name=\"ocean-mcp\"}[$__rate_interval])) / clamp_min(sum(rate(mcp_service_polls_count{service_name=\"ocean-mcp\"}[$__rate_interval])), 0.0001)",
           "legendFormat": "service polls/service",
           "range": true,
           "instant": false,
