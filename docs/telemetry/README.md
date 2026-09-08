@@ -488,6 +488,46 @@ without the filter those calls dominate p95/p99 for every other tool.
 Time range and refresh are the standard Grafana controls at the top right. Panels use `$__range`
 (dashboard range) or `$__rate_interval` (auto-sized rate window), so they follow it automatically.
 
+### Reading specific panels
+
+These notes used to live in text panels on the dashboard itself; they were moved here to keep the
+dashboard data-only.
+
+**User range (unique users ↔ unique sessions).** The two lines bracket the true count — lower bound
+`mcp_users_active_estimate`, upper bound `mcp_sessions_started_total`. Full explanation, including
+the post-deploy DAU dip and the single-instance caveat, is in
+[Unique users: why it is a range, not a number](#unique-users-why-it-is-a-range-not-a-number).
+
+**Paid-compute funnel.** Read top to bottom:
+
+1. `initializeCompute` — job priced
+2. `escrow_preflight{caller="compute_gate"}` — can it be paid for?
+3. `escrow_preflight{caller="compute_gate", result="ready"}` — escrow could back it
+4. `compute.jobs.started` — actually launched
+
+A large gap between steps 2 and 3 is payment friction, not disinterest. A gap between 3 and 4 means
+escrow was fine and the start failed for another reason. See also [the caller label](#the-caller-label).
+
+**Per-user drill-down (Tempo).** `user.id` is on **spans only**, never on a metric — a per-user
+label would be a cardinality bomb in Prometheus/Mimir. To inspect one anonymous user's activity,
+open **Explore → Tempo** and run:
+
+```text
+{ name =~ "tool\\..*" && span.user.id = "<hash>" }
+```
+
+Other useful queries:
+
+```text
+{ name =~ "tool\\..*" && span.status = "error" }               # every failing tool call
+{ name = "tool.serviceStart" }                                 # who is starting services
+{ name =~ "tool\\..*" && span.error.type = "onchain_revert" }  # on-chain failures
+{ span.session.id = "<uuid>" }                                 # one whole session
+```
+
+Span attributes are limited to `tool.name`, `tool.category`, `session.id`, `user.id`, `status` and
+`error.type`. Arguments, error messages and stack traces are never attached.
+
 ---
 
 ## E. Verify end to end

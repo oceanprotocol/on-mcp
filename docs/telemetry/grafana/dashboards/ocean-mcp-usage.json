@@ -34,22 +34,6 @@
       "panels": []
     },
     {
-      "id": 2,
-      "type": "text",
-      "title": "How to read the user range",
-      "datasource": null,
-      "gridPos": {
-        "h": 8,
-        "w": 6,
-        "x": 0,
-        "y": 1
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "There is **no exact user count** without auth, so the truth is bracketed:\n\n* **Unique users (lower bound)** \u2014 `mcp_users_active_estimate`, a HyperLogLog of\n  `hash(IP + client)`. Users behind one NAT collapse together, so this **under**counts.\n  It is an estimate (~1% error).\n* **Unique sessions (upper bound)** \u2014 every reconnect is a new session id, so this\n  **over**counts.\n\nThe real figure sits between the two lines on the panel to the right.\n\n\u26a0\ufe0f **A deploy causes a temporary DAU dip.** The HLL sketches are in-memory and reset on\nrestart, then re-accumulate over the rest of the calendar window. That dip is an artefact,\nnot a real drop in users.\n\n\u26a0\ufe0f **Single instance only.** Per-replica HLL estimates cannot be summed. Revisit before\nscaling the SSE server past one replica."
-      }
-    },
-    {
       "id": 3,
       "type": "timeseries",
       "title": "User range: unique users \u2194 unique sessions",
@@ -1354,22 +1338,6 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
-    },
-    {
-      "id": 24,
-      "type": "text",
-      "title": "Paid-compute funnel",
-      "datasource": null,
-      "gridPos": {
-        "h": 8,
-        "w": 4,
-        "x": 12,
-        "y": 57
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "Read top to bottom in the panel to the right:\n\n1. `initializeCompute` \u2014 job priced\n2. `escrow_preflight{caller=\"compute_gate\"}` \u2014 can it be paid for?\n3. `escrow_preflight{caller=\"compute_gate\", result=\"ready\"}` \u2014 escrow could back it\n4. `compute.jobs.started` \u2014 actually launched\n\nA large gap between steps 2 and 3 is payment friction, not disinterest. A gap between 3 and 4 means\nescrow was fine and the start failed for another reason.\n"
       }
     },
     {
@@ -3534,22 +3502,6 @@
         "y": 146
       },
       "panels": []
-    },
-    {
-      "id": 45,
-      "type": "text",
-      "title": "Per-user drill-down (Tempo)",
-      "datasource": null,
-      "gridPos": {
-        "h": 5,
-        "w": 24,
-        "x": 0,
-        "y": 147
-      },
-      "options": {
-        "mode": "markdown",
-        "content": "`user.id` is on **spans only**, never on a metric \u2014 a per-user label would be a cardinality bomb\nin Prometheus/Mimir.\n\nTo inspect one anonymous user's activity, open **Explore \u2192 Tempo** and run:\n\n```\n{ name =~ \"tool\\\\..*\" && span.user.id = \"<hash>\" }\n```\n\nOther useful queries:\n\n```\n{ name =~ \"tool\\\\..*\" && span.status = \"error\" }                     # every failing tool call\n{ name = \"tool.serviceStart\" }                                      # who is starting services\n{ name =~ \"tool\\\\..*\" && span.error.type = \"onchain_revert\" }        # on-chain failures\n{ span.session.id = \"<uuid>\" }                                      # one whole session\n```\n\nSpan attributes are limited to `tool.name`, `tool.category`, `session.id`, `user.id`, `status`\nand `error.type`. Arguments, error messages and stack traces are never attached.\n"
-      }
     }
   ],
   "refresh": "1m",
