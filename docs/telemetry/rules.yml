@@ -9,13 +9,18 @@ groups:
   - name: on-mcp-runtime
     interval: 30s
     rules:
-      # `v8js.memory.heap.*` comes from @opentelemetry/instrumentation-runtime-node. The `limit`
-      # series reflects `--max-old-space-size=28784` (~28 GB) from the `start` script.
+      # `v8js.memory.heap.*` comes from @opentelemetry/instrumentation-runtime-node. The `available`
+      # series reflects `--max-old-space-size` from the container command.
+      #
+      # Grouped `by (service_name)` on purpose: v8js_* is emitted by every OTel Node service, so on a
+      # shared backend a bare `sum()` would blend on-mcp's heap with every other service's. Grouping
+      # computes the ratio per service and keeps a `service_name` label; the dashboard panel filters
+      # to `service_name="ocean-mcp"`.
       - record: ocean_mcp:heap_used_ratio
         expr: |
-          sum(v8js_memory_heap_space_used_size_by_space_bytes)
-            / clamp_min(sum(v8js_memory_heap_space_available_size_by_space_bytes)
-                        + sum(v8js_memory_heap_space_used_size_by_space_bytes), 1)
+          sum by (service_name)(v8js_memory_heap_space_used_size_by_space_bytes)
+            / clamp_min(sum by (service_name)(v8js_memory_heap_space_available_size_by_space_bytes)
+                        + sum by (service_name)(v8js_memory_heap_space_used_size_by_space_bytes), 1)
 
   - name: on-mcp-usage
     interval: 30s

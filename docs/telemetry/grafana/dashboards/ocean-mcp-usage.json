@@ -2261,7 +2261,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "ocean_mcp:heap_used_ratio",
+          "expr": "ocean_mcp:heap_used_ratio{service_name=\"ocean-mcp\"}",
           "legendFormat": "heap used / total",
           "range": true,
           "instant": false,
