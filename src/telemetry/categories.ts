@@ -20,7 +20,7 @@ export type ToolCategory =
 
 const RULES: Array<{ pattern: RegExp; category: ToolCategory }> = [
   { pattern: /^incentives_/, category: 'incentives' },
-  { pattern: /^(escrow_|accesslist_)/, category: 'evm' },
+  { pattern: /^(escrow_|accesslist_|subsidy_)/, category: 'evm' },
   {
     pattern: /^(service|findService|getService|getServices|estimateService)/,
     category: 'services'

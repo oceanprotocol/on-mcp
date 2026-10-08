@@ -98,9 +98,14 @@ async function escrowPreflightGate(
       payment,
       maxJobDuration: args.maxJobDuration,
       parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      // Forward the same tri-state selection sent to the node: a sponsored lock relaxes the
+      // payer-funded gate (a fully-sponsored user can start with zero deposit).
+      subsidyProviders: args.subsidyProviders,
       caller: 'compute_gate'
     })
-    if (!preflight.canStartThisJob) {
+    // Proceed when the only blocker is payer funding that a selected subsidy provider may cover
+    // (payerFundingUncertain) — the node/contract settles the payer portion authoritatively.
+    if (!preflight.canStartThisJob && !preflight.payerFundingUncertain) {
       return {
         ...textContent(
           toPrettyJson({
@@ -603,6 +608,14 @@ ${P2P_AUTH_SIGNING_GUIDE}
         policyServer: z.record(z.string(), z.unknown()).optional(),
         queueMaxWaitTime: z.number().optional(),
         dockerRegistryAuth: z.record(z.string(), z.unknown()).optional(),
+        subsidyProviders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
+              'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
+              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+          ),
         parallelJobs: z
           .number()
           .int()
@@ -644,7 +657,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
             output: args.output as never,
             policyServer: args.policyServer,
             queueMaxWaitTime: args.queueMaxWaitTime,
-            dockerRegistryAuth: args.dockerRegistryAuth as never
+            dockerRegistryAuth: args.dockerRegistryAuth as never,
+            subsidyProviders: args.subsidyProviders
           }
         )
         return commandResultPayload('computeStart', result)

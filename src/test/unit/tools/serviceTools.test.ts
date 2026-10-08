@@ -588,10 +588,14 @@ describe('serviceEscrowGate', () => {
     durationSeconds: 600
   }
 
-  function preflightResult(canStartThisJob: boolean): EscrowPreflightResult {
+  function preflightResult(
+    canStartThisJob: boolean,
+    payerFundingUncertain = false
+  ): EscrowPreflightResult {
     return {
       ready: canStartThisJob,
       canStartThisJob,
+      payerFundingUncertain,
       reason: canStartThisJob ? undefined : 'insufficient_funds',
       payer: PAYER,
       payee: PAYEE,
@@ -652,6 +656,18 @@ describe('serviceEscrowGate', () => {
       evmRegistry: fakeEvmRegistry,
       args: { authToken: fakeAuthToken() },
       runPreflight: () => Promise.resolve(preflightResult(true))
+    })
+    expect(gate).to.equal(undefined)
+  })
+
+  it('proceeds when payer funding is uncertain but a subsidy provider may cover it', async () => {
+    const gate = await serviceEscrowGate({
+      ...GATE_ARGS,
+      nodeClient: stubbedClient(),
+      evmRegistry: fakeEvmRegistry,
+      args: { authToken: fakeAuthToken() },
+      // canStartThisJob=false (payer funds short) but payerFundingUncertain=true → do not block.
+      runPreflight: () => Promise.resolve(preflightResult(false, true))
     })
     expect(gate).to.equal(undefined)
   })
