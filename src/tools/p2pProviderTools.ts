@@ -98,6 +98,9 @@ async function escrowPreflightGate(
       payment,
       maxJobDuration: args.maxJobDuration,
       parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      // Forward the same tri-state selection sent to the node: a sponsored lock relaxes the
+      // payer-funded gate (a fully-sponsored user can start with zero deposit).
+      subsidyProviders: args.subsidyProviders,
       caller: 'compute_gate'
     })
     if (!preflight.canStartThisJob) {

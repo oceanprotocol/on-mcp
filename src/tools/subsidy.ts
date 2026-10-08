@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
+  isUnsupportedInterfaceError,
   SubsidyKind,
   SubsidyMode,
   SubsidyModeConfig,
@@ -31,12 +32,19 @@ function getSubsidyView(
   return new SubsidyView(signer, getAddress(contractAddress), chainId)
 }
 
-/** Run a read that may revert on a contract missing the method; report null instead of throwing. */
+/**
+ * Run a read that may revert because the contract does not implement the method; report null for
+ * that case only. Genuine RPC/network failures are RE-THROWN so they surface as the tool's error
+ * response instead of being silently reported as "unsupported" — same distinction the library's
+ * ERC-165 feature checks use (`isUnsupportedInterfaceError`: on-chain revert / empty data / missing
+ * ABI method).
+ */
 async function safe<T>(read: () => Promise<T>): Promise<T | null> {
   try {
     return await read()
-  } catch {
-    return null
+  } catch (error) {
+    if (isUnsupportedInterfaceError(error)) return null
+    throw error
   }
 }
 
@@ -175,6 +183,29 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
     }) => {
       try {
         const view = getSubsidyView(evmRegistry, chainId, contractAddress)
+        // quoteSubsidyModes / quoteSubsidyByMode are ISubsidyViewV2-only; they revert on a v1
+        // provider. Feature-detect first and fall back to the v1 single-mode quote where possible.
+        const isV2 = await view.isSubsidyViewV2()
+        if (!isV2) {
+          if (mode === 'REIMBURSEMENT') {
+            const result = await view.quoteSubsidy(
+              getAddress(node),
+              getAddress(payer),
+              jobType,
+              getAddress(token),
+              amount,
+              subsidyNeeded,
+              tokenDecimals
+            )
+            return commandResultPayload('subsidy_quote', result)
+          }
+          // PREFUNDED is a v2-only (lock-time) mode, and dual-mode quoting needs v2 — a v1 provider
+          // can only answer the claim-time REIMBURSEMENT quote.
+          throw new Error(
+            'This subsidy provider does not implement ISubsidyViewV2: only the v1 claim-time ' +
+              'quote is available. Re-call with mode="REIMBURSEMENT".'
+          )
+        }
         if (mode) {
           const result = await view.quoteSubsidyByMode(
             getAddress(node),

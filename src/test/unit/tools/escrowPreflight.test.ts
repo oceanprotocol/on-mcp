@@ -145,6 +145,43 @@ describe('evaluateEscrowReadiness', () => {
     expect(r.canStartThisJob).to.equal(true)
   })
 
+  it('sponsored lock: zero funds is startable when an authorization exists', () => {
+    // A selected subsidy provider may fully pre-fund the lock, so the payer-funded funds/amount
+    // guards are skipped and a zero-deposit user can still start.
+    const r = evaluateEscrowReadiness({
+      ...BASE,
+      available: 0n,
+      authorization: fullAuth,
+      subsidyProviders: ['0x0000000000000000000000000000000000000abc']
+    })
+    expect(r.canStartThisJob).to.equal(true)
+    expect(r.ready).to.equal(true)
+    expect(r.reason).to.equal(undefined)
+    expect(r.shortfalls.join(' ')).to.not.match(/funds|headroom/)
+  })
+
+  it('sponsored lock still requires an authorization to exist', () => {
+    const r = evaluateEscrowReadiness({
+      ...BASE,
+      available: 0n,
+      authorization: null,
+      subsidyProviders: ['0x0000000000000000000000000000000000000abc']
+    })
+    expect(r.canStartThisJob).to.equal(false)
+    expect(r.reason).to.equal('missing_authorization')
+  })
+
+  it('explicit empty subsidyProviders stays payer-funded (not relaxed)', () => {
+    const r = evaluateEscrowReadiness({
+      ...BASE,
+      available: 0n,
+      authorization: fullAuth,
+      subsidyProviders: []
+    })
+    expect(r.canStartThisJob).to.equal(false)
+    expect(r.reason).to.equal('insufficient_funds')
+  })
+
   it('bumps requiredMaxLockSeconds up to minLockSeconds when the buffer is smaller', () => {
     const r = evaluateEscrowReadiness({
       ...BASE,

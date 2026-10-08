@@ -125,6 +125,12 @@ export async function runEscrowPreflight(params: {
   maxJobDuration: number
   parallelJobs?: number
   /**
+   * The consumer-selected subsidy providers for this job (tri-state, see ocean-node #1485). A
+   * non-empty list means the lock may be (partly) sponsored, so the payer-funded guards are
+   * relaxed — see `evaluateEscrowReadiness`.
+   */
+  subsidyProviders?: string[]
+  /**
    * Which context invoked the check, for the `mcp.escrow.preflight{caller}` metric. Most
    * preflights are the implicit gates inside `computeStart`/`serviceStart`, not this tool — see
    * `telemetry/escrowMetrics.ts`.
@@ -181,7 +187,8 @@ export async function runEscrowPreflight(params: {
     maxJobDuration,
     parallelJobs,
     available,
-    authorization
+    authorization,
+    subsidyProviders: params.subsidyProviders
   })
 
   // Recorded here rather than in the tool wrapper: two of the three callers are gates, not tools.
@@ -206,6 +213,8 @@ export function evaluateEscrowReadiness(params: {
   parallelJobs: number
   available: bigint
   authorization: EscrowAuthorizationView | null
+  /** Consumer-selected subsidy providers; a non-empty list may (partly) sponsor the lock. */
+  subsidyProviders?: string[]
 }): EscrowPreflightResult {
   const {
     payer,
@@ -220,6 +229,14 @@ export function evaluateEscrowReadiness(params: {
     available
   } = params
   const parsed = params.authorization
+  // A lock with selected subsidy providers may be (partly) pre-funded: the payer only covers
+  // `P = L − S`, which cannot be determined client-side without quoting the providers. Mirroring
+  // ocean-node's `createLock`, skip the payer-funded guards (available-funds + the `maxLockedAmount`
+  // cap, which in v2 tracks only `P`) for a sponsored lock and let the contract settle `P`
+  // authoritatively; auth existence, lock-count, duration and expiry still apply. An explicit `[]`
+  // (no providers) or an omitted selection stays payer-funded, so the guards are unchanged there.
+  const sponsored =
+    Array.isArray(params.subsidyProviders) && params.subsidyProviders.length > 0
 
   const requiredMaxLockedAmount = amount * BigInt(parallelJobs)
   const requiredMaxLockCounts = BigInt(parallelJobs)
@@ -227,11 +244,12 @@ export function evaluateEscrowReadiness(params: {
     BigInt(maxJobDuration) + BigInt(LOCK_DURATION_BUFFER_SECONDS)
   if (requiredMaxLockSeconds < minLockSeconds) requiredMaxLockSeconds = minLockSeconds
 
-  // Per-job feasibility (mirrors ocean-node createLock validation).
-  const fundsCanStart = available >= amount
+  // Per-job feasibility (mirrors ocean-node createLock validation). The payer-funded guards
+  // (funds + headroom) are skipped for a sponsored lock — see the `sponsored` note above.
+  const fundsCanStart = sponsored || available >= amount
   const authExists = parsed !== null
   const headroom = parsed ? parsed.maxLockedAmount - parsed.currentLockedAmount : 0n
-  const headroomCanStart = authExists && headroom >= amount
+  const headroomCanStart = sponsored || (authExists && headroom >= amount)
   const secondsCanStart = authExists && parsed!.maxLockSeconds >= minLockSeconds
   const countCanStart = authExists && parsed!.currentLocks + 1n <= parsed!.maxLockCounts
   // Escrow v2 authorization expiry (optimistic, wall-clock pre-check; the on-chain block.timestamp
@@ -251,9 +269,11 @@ export function evaluateEscrowReadiness(params: {
     countCanStart &&
     expiryCanStart
 
-  // Generous provisioning targets (set once, reuse for many/long/parallel jobs).
-  const fundsOk = available >= requiredMaxLockedAmount
-  const authAmountOk = authExists && parsed!.maxLockedAmount >= requiredMaxLockedAmount
+  // Generous provisioning targets (set once, reuse for many/long/parallel jobs). The payer-funded
+  // amount targets are advisory-only and not meaningful for a sponsored lock, so treat them as met.
+  const fundsOk = sponsored || available >= requiredMaxLockedAmount
+  const authAmountOk =
+    sponsored || (authExists && parsed!.maxLockedAmount >= requiredMaxLockedAmount)
   const authSecondsOk = authExists && parsed!.maxLockSeconds >= requiredMaxLockSeconds
   const authCountsOk = authExists && parsed!.maxLockCounts >= requiredMaxLockCounts
   const ready =
@@ -419,6 +439,25 @@ async function autoFixEscrow(params: {
     )
     actions.push({
       action: 'authorize',
+      tx: receipt?.hash ?? receipt?.transactionHash
+    })
+  } else if (result.reason === 'authorization_expired') {
+    // Escrow v2 `authorize` OVERWRITES an existing authorization, so a past-expiry (effectively
+    // revoked) auth can be renewed in place — re-authorize to the targets with a fresh indefinite
+    // expiry ('0'). This path was impossible pre-v2 (authorize no-op'd on an existing auth).
+    const maxLockedHuman = formatUnits(BigInt(result.required.maxLockedAmount), decimals)
+    const receipt: any = await escrow.authorize(
+      result.token,
+      result.payee,
+      maxLockedHuman,
+      result.required.maxLockSeconds,
+      result.required.maxLockCounts,
+      '0',
+      decimals
+    )
+    actions.push({
+      action: 'authorize',
+      note: 'Renewed an expired authorization (reset expiry to indefinite).',
       tx: receipt?.hash ?? receipt?.transactionHash
     })
   } else if (!result.ready) {

@@ -186,6 +186,7 @@ export async function serviceEscrowGate(params: {
     completeSignature?: { consumerAddress: string }
     skipEscrowPreflight?: boolean
     parallelJobs?: number
+    subsidyProviders?: string[]
   }
   env: ComputeEnvironment
   chainId: number
@@ -229,6 +230,9 @@ export async function serviceEscrowGate(params: {
       payment: built.payment,
       maxJobDuration: params.durationSeconds,
       parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      // Forward the same tri-state selection sent to the node: a sponsored lock relaxes the
+      // payer-funded gate (a fully-sponsored user can start/extend with zero deposit).
+      subsidyProviders: args.subsidyProviders,
       caller: 'service_gate'
     })
   } catch {
