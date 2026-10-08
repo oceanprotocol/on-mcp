@@ -25,8 +25,11 @@ const fullAuth: EscrowAuthorizationView = {
   currentLockedAmount: 0n,
   maxLockSeconds: 87000n,
   maxLockCounts: 3n,
-  currentLocks: 0n
+  currentLocks: 0n,
+  expiryTimestamp: 0n // indefinite (Escrow v2 default)
 }
+
+const nowSec = () => BigInt(Math.floor(Date.now() / 1000))
 
 describe('evaluateEscrowReadiness', () => {
   it('ready when funds + authorization meet the generous targets', () => {
@@ -106,6 +109,40 @@ describe('evaluateEscrowReadiness', () => {
     expect(r.reason).to.equal(undefined) // not blocking — just a recommendation
     expect(r.action?.url).to.match(/profile\/escrow/)
     expect(r.shortfalls.join(' ')).to.match(/recommended 3000/)
+  })
+
+  it('authorization_expired when expiryTimestamp is in the past (Escrow v2)', () => {
+    const r = evaluateEscrowReadiness({
+      ...BASE,
+      available: 3000n,
+      authorization: { ...fullAuth, expiryTimestamp: nowSec() - 100n }
+    })
+    expect(r.canStartThisJob).to.equal(false)
+    expect(r.reason).to.equal('authorization_expired')
+    expect(r.shortfalls.join(' ')).to.match(/expired/)
+    expect(r.current.authorization.expiryTimestamp).to.not.equal('0')
+  })
+
+  it('authorization_expired when the lock would outlive the authorization expiry', () => {
+    // expiry is in the future but closer than minLockSeconds (3600), so the lock end exceeds it.
+    const r = evaluateEscrowReadiness({
+      ...BASE,
+      available: 3000n,
+      authorization: { ...fullAuth, expiryTimestamp: nowSec() + 60n }
+    })
+    expect(r.canStartThisJob).to.equal(false)
+    expect(r.reason).to.equal('authorization_expired')
+    expect(r.shortfalls.join(' ')).to.match(/outlive authorization expiry/)
+  })
+
+  it('ready with a comfortably-future expiryTimestamp (indefinite-equivalent)', () => {
+    const r = evaluateEscrowReadiness({
+      ...BASE,
+      available: 3000n,
+      authorization: { ...fullAuth, expiryTimestamp: nowSec() + 1_000_000n }
+    })
+    expect(r.ready).to.equal(true)
+    expect(r.canStartThisJob).to.equal(true)
   })
 
   it('bumps requiredMaxLockSeconds up to minLockSeconds when the buffer is smaller', () => {

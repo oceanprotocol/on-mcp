@@ -603,6 +603,14 @@ ${P2P_AUTH_SIGNING_GUIDE}
         policyServer: z.record(z.string(), z.unknown()).optional(),
         queueMaxWaitTime: z.number().optional(),
         dockerRegistryAuth: z.record(z.string(), z.unknown()).optional(),
+        subsidyProviders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
+              'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
+              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+          ),
         parallelJobs: z
           .number()
           .int()
@@ -644,7 +652,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
             output: args.output as never,
             policyServer: args.policyServer,
             queueMaxWaitTime: args.queueMaxWaitTime,
-            dockerRegistryAuth: args.dockerRegistryAuth as never
+            dockerRegistryAuth: args.dockerRegistryAuth as never,
+            subsidyProviders: args.subsidyProviders
           }
         )
         return commandResultPayload('computeStart', result)

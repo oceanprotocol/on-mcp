@@ -64,7 +64,11 @@ export type EscrowPreflightResult = {
   ready: boolean
   /** Per-job feasibility the node enforces at createLock — the blocking condition. */
   canStartThisJob: boolean
-  reason?: 'insufficient_funds' | 'missing_authorization' | 'authorization_limits'
+  reason?:
+    | 'insufficient_funds'
+    | 'missing_authorization'
+    | 'authorization_limits'
+    | 'authorization_expired'
   payer: string
   payee: string
   token: string
@@ -87,6 +91,8 @@ export type EscrowPreflightResult = {
       maxLockSeconds?: string
       maxLockCounts?: string
       currentLocks?: string
+      /** Escrow v2: `0` = indefinite; a past value means the authorization can no longer lock. */
+      expiryTimestamp?: string
     }
   }
   shortfalls: string[]
@@ -100,6 +106,11 @@ export type EscrowAuthorizationView = {
   maxLockSeconds: bigint
   maxLockCounts: bigint
   currentLocks: bigint
+  /**
+   * Escrow v2: unix seconds after which the payee can no longer create/extend locks. `0n` =
+   * indefinite (also the case on a pre-v2 escrow whose auth tuple has no expiry field).
+   */
+  expiryTimestamp: bigint
 }
 
 /**
@@ -146,7 +157,9 @@ export async function runEscrowPreflight(params: {
           currentLockedAmount: BigInt(auth[2].toString()),
           maxLockSeconds: BigInt(auth[3].toString()),
           maxLockCounts: BigInt(auth[4].toString()),
-          currentLocks: BigInt(auth[5].toString())
+          currentLocks: BigInt(auth[5].toString()),
+          // Escrow v2 added `expiryTimestamp` at index [6]; absent on a pre-v2 escrow ⇒ 0n (indefinite).
+          expiryTimestamp: BigInt((auth[6] ?? 0).toString())
         }
       : null
   } catch (error) {
@@ -221,8 +234,22 @@ export function evaluateEscrowReadiness(params: {
   const headroomCanStart = authExists && headroom >= amount
   const secondsCanStart = authExists && parsed!.maxLockSeconds >= minLockSeconds
   const countCanStart = authExists && parsed!.currentLocks + 1n <= parsed!.maxLockCounts
+  // Escrow v2 authorization expiry (optimistic, wall-clock pre-check; the on-chain block.timestamp
+  // stays authoritative). A non-zero `expiryTimestamp` gates new locks: the auth is unusable once
+  // past it, and a lock may not end beyond it (it can never outlive its auth). `0` = indefinite,
+  // also the case on a pre-v2 escrow — so this is a no-op there. Mirrors ocean-node utils/escrow.ts.
+  const nowSec = BigInt(Math.floor(Date.now() / 1000))
+  const expiry = authExists ? parsed!.expiryTimestamp : 0n
+  const authExpired = authExists && expiry > 0n && nowSec > expiry
+  const lockOutlivesExpiry = authExists && expiry > 0n && nowSec + minLockSeconds > expiry
+  const expiryCanStart = authExists && !authExpired && !lockOutlivesExpiry
   const canStartThisJob =
-    fundsCanStart && authExists && headroomCanStart && secondsCanStart && countCanStart
+    fundsCanStart &&
+    authExists &&
+    headroomCanStart &&
+    secondsCanStart &&
+    countCanStart &&
+    expiryCanStart
 
   // Generous provisioning targets (set once, reuse for many/long/parallel jobs).
   const fundsOk = available >= requiredMaxLockedAmount
@@ -267,12 +294,22 @@ export function evaluateEscrowReadiness(params: {
         `authorization has no free lock slot: currentLocks ${parsed!.currentLocks} + 1 > maxLockCounts ${parsed!.maxLockCounts}`
       )
     }
+    if (authExpired) {
+      shortfalls.push(
+        `authorization expired: expiryTimestamp ${expiry} < now ${nowSec} (re-authorize with escrow_authorize to renew)`
+      )
+    } else if (lockOutlivesExpiry) {
+      shortfalls.push(
+        `lock would outlive authorization expiry: now ${nowSec} + minLockSeconds ${minLockSeconds} > expiryTimestamp ${expiry}`
+      )
+    }
   }
 
   let reason: EscrowPreflightResult['reason']
   if (!canStartThisJob) {
     if (!fundsCanStart) reason = 'insufficient_funds'
     else if (!authExists) reason = 'missing_authorization'
+    else if (authExpired || lockOutlivesExpiry) reason = 'authorization_expired'
     else reason = 'authorization_limits'
   }
 
@@ -315,7 +352,8 @@ export function evaluateEscrowReadiness(params: {
             currentLockedAmount: parsed.currentLockedAmount.toString(),
             maxLockSeconds: parsed.maxLockSeconds.toString(),
             maxLockCounts: parsed.maxLockCounts.toString(),
-            currentLocks: parsed.currentLocks.toString()
+            currentLocks: parsed.currentLocks.toString(),
+            expiryTimestamp: parsed.expiryTimestamp.toString()
           }
         : { exists: false }
     },
@@ -375,6 +413,8 @@ async function autoFixEscrow(params: {
       maxLockedHuman,
       result.required.maxLockSeconds,
       result.required.maxLockCounts,
+      // Escrow v2 added `expiryTimestamp` before `tokenDecimals`; '0' = indefinite (today's behaviour).
+      '0',
       decimals
     )
     actions.push({
