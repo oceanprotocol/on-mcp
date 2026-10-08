@@ -103,7 +103,9 @@ async function escrowPreflightGate(
       subsidyProviders: args.subsidyProviders,
       caller: 'compute_gate'
     })
-    if (!preflight.canStartThisJob) {
+    // Proceed when the only blocker is payer funding that a selected subsidy provider may cover
+    // (payerFundingUncertain) — the node/contract settles the payer portion authoritatively.
+    if (!preflight.canStartThisJob && !preflight.payerFundingUncertain) {
       return {
         ...textContent(
           toPrettyJson({

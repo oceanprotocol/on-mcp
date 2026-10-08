@@ -239,7 +239,9 @@ export async function serviceEscrowGate(params: {
     return undefined
   }
 
-  if (preflight.canStartThisJob) return undefined
+  // Proceed when the only blocker is payer funding a selected subsidy provider may cover
+  // (payerFundingUncertain) — the node/contract settles the payer portion authoritatively.
+  if (preflight.canStartThisJob || preflight.payerFundingUncertain) return undefined
   return structuredError(command, {
     error: 'escrow_preflight_failed',
     message:

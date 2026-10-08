@@ -26,6 +26,12 @@ export const DEFAULT_PARALLEL_JOBS = 3
 export const MANAGE_ESCROW_URL = 'https://dashboard.oncompute.ai/profile/escrow'
 /** Assumed `claimDurationTimeout` when the node's real value is unknowable — see below. */
 export const DEFAULT_CLAIM_DURATION_TIMEOUT_SECONDS = 3600
+/**
+ * Default bounded window (30 days) applied when auto-renewing an EXPIRED authorization. The whole
+ * point of `expiryTimestamp` is to bound how long a payee may keep locking, so auto-fix renews to a
+ * finite expiry by default — setting an indefinite (`0`) expiry requires explicit caller consent.
+ */
+export const DEFAULT_AUTH_RENEWAL_SECONDS = 30 * 86400
 
 /**
  * `minLockSeconds` for a service of `durationSeconds`.
@@ -64,6 +70,14 @@ export type EscrowPreflightResult = {
   ready: boolean
   /** Per-job feasibility the node enforces at createLock — the blocking condition. */
   canStartThisJob: boolean
+  /**
+   * Escrow v2: true when the ONLY blocker is payer funding AND the caller selected subsidy
+   * providers that may pre-fund the lock. Sponsorship can't be verified client-side (budget /
+   * eligibility / node filter), so the payer-funded checks are still reported as failing — but the
+   * best-effort gates proceed on this flag instead of hard-blocking, letting the contract settle
+   * the payer portion `P` authoritatively.
+   */
+  payerFundingUncertain: boolean
   reason?:
     | 'insufficient_funds'
     | 'missing_authorization'
@@ -229,12 +243,13 @@ export function evaluateEscrowReadiness(params: {
     available
   } = params
   const parsed = params.authorization
-  // A lock with selected subsidy providers may be (partly) pre-funded: the payer only covers
-  // `P = L − S`, which cannot be determined client-side without quoting the providers. Mirroring
-  // ocean-node's `createLock`, skip the payer-funded guards (available-funds + the `maxLockedAmount`
-  // cap, which in v2 tracks only `P`) for a sponsored lock and let the contract settle `P`
-  // authoritatively; auth existence, lock-count, duration and expiry still apply. An explicit `[]`
-  // (no providers) or an omitted selection stays payer-funded, so the guards are unchanged there.
+  // A non-empty subsidy-provider selection means the lock MAY be (partly) pre-funded, so the payer
+  // would only cover `P = L − S`. But sponsorship is UNCERTAIN here: we cannot verify client-side
+  // that the providers actually cover anything (budget / eligibility / node `SUBSIDY_PROVIDER_FILTER`
+  // can all reduce it to 0). So we neither pass the payer-funded checks (they stay truthful) nor
+  // hard-block on them — instead we flag `payerFundingUncertain` below so the best-effort gates
+  // proceed and let the contract settle `P`. An explicit `[]` or an omitted selection is not
+  // sponsored and is fully payer-gated.
   const sponsored =
     Array.isArray(params.subsidyProviders) && params.subsidyProviders.length > 0
 
@@ -244,12 +259,12 @@ export function evaluateEscrowReadiness(params: {
     BigInt(maxJobDuration) + BigInt(LOCK_DURATION_BUFFER_SECONDS)
   if (requiredMaxLockSeconds < minLockSeconds) requiredMaxLockSeconds = minLockSeconds
 
-  // Per-job feasibility (mirrors ocean-node createLock validation). The payer-funded guards
-  // (funds + headroom) are skipped for a sponsored lock — see the `sponsored` note above.
-  const fundsCanStart = sponsored || available >= amount
+  // Per-job feasibility (mirrors ocean-node createLock validation). These stay truthful even when
+  // sponsored — sponsorship is handled via `payerFundingUncertain`, not by passing these.
+  const fundsCanStart = available >= amount
   const authExists = parsed !== null
   const headroom = parsed ? parsed.maxLockedAmount - parsed.currentLockedAmount : 0n
-  const headroomCanStart = sponsored || (authExists && headroom >= amount)
+  const headroomCanStart = authExists && headroom >= amount
   const secondsCanStart = authExists && parsed!.maxLockSeconds >= minLockSeconds
   const countCanStart = authExists && parsed!.currentLocks + 1n <= parsed!.maxLockCounts
   // Escrow v2 authorization expiry (optimistic, wall-clock pre-check; the on-chain block.timestamp
@@ -269,11 +284,18 @@ export function evaluateEscrowReadiness(params: {
     countCanStart &&
     expiryCanStart
 
-  // Generous provisioning targets (set once, reuse for many/long/parallel jobs). The payer-funded
-  // amount targets are advisory-only and not meaningful for a sponsored lock, so treat them as met.
-  const fundsOk = sponsored || available >= requiredMaxLockedAmount
-  const authAmountOk =
-    sponsored || (authExists && parsed!.maxLockedAmount >= requiredMaxLockedAmount)
+  // Split the blockers so a (possibly) sponsored lock can distinguish "only payer funding is short"
+  // (which a selected subsidy provider may cover on-chain) from a real authorization blocker that
+  // sponsorship cannot fix (missing/expired auth, no free slot, too short). Only the former is
+  // treated as uncertain-and-proceedable.
+  const payerFundedBlocked = !fundsCanStart || !headroomCanStart
+  const authBlocked = !authExists || !secondsCanStart || !countCanStart || !expiryCanStart
+  const payerFundingUncertain = sponsored && payerFundedBlocked && !authBlocked
+
+  // Generous provisioning targets (set once, reuse for many/long/parallel jobs). These stay
+  // truthful even when sponsored; `payerFundingUncertain` (not a forced pass) carries the nuance.
+  const fundsOk = available >= requiredMaxLockedAmount
+  const authAmountOk = authExists && parsed!.maxLockedAmount >= requiredMaxLockedAmount
   const authSecondsOk = authExists && parsed!.maxLockSeconds >= requiredMaxLockSeconds
   const authCountsOk = authExists && parsed!.maxLockCounts >= requiredMaxLockCounts
   const ready =
@@ -324,6 +346,12 @@ export function evaluateEscrowReadiness(params: {
       )
     }
   }
+  if (payerFundingUncertain) {
+    shortfalls.push(
+      'selected subsidy providers may cover the payer-funded shortfall above — this is not verified ' +
+        'here; the node/contract settles the payer portion at lock time, so the start is allowed to proceed'
+    )
+  }
 
   let reason: EscrowPreflightResult['reason']
   if (!canStartThisJob) {
@@ -349,6 +377,7 @@ export function evaluateEscrowReadiness(params: {
   return {
     ready,
     canStartThisJob,
+    payerFundingUncertain,
     reason,
     payer,
     payee,
@@ -402,8 +431,13 @@ async function autoFixEscrow(params: {
   evmRegistry: EvmProviderRegistry
   privateKey: string
   result: EscrowPreflightResult
+  /**
+   * Explicit caller consent to renew an expired authorization to an INDEFINITE (`0`) expiry.
+   * Default (false): renew to a bounded expiry so the safety the expiry provides is preserved.
+   */
+  renewExpiryIndefinite?: boolean
 }): Promise<Array<{ action: string; amount?: string; tx?: string; note?: string }>> {
-  const { evmRegistry, privateKey, result } = params
+  const { evmRegistry, privateKey, result, renewExpiryIndefinite } = params
   const { chainId } = result
   const provider = getProviderOrThrow(evmRegistry, chainId)
   const wallet = new Wallet(privateKey, provider as never) as never
@@ -443,8 +477,17 @@ async function autoFixEscrow(params: {
     })
   } else if (result.reason === 'authorization_expired') {
     // Escrow v2 `authorize` OVERWRITES an existing authorization, so a past-expiry (effectively
-    // revoked) auth can be renewed in place — re-authorize to the targets with a fresh indefinite
-    // expiry ('0'). This path was impossible pre-v2 (authorize no-op'd on an existing auth).
+    // revoked) auth can be renewed in place. Renew to a BOUNDED expiry by default — an indefinite
+    // ('0') expiry removes the very protection the expiry provides, so it needs explicit consent.
+    // The bounded window is at least the required lock duration, so the renewed auth can immediately
+    // start this job (the lock will not outlive it).
+    const nowSec = Math.floor(Date.now() / 1000)
+    const expiryTimestamp = renewExpiryIndefinite
+      ? '0'
+      : String(
+          nowSec +
+            Math.max(DEFAULT_AUTH_RENEWAL_SECONDS, Number(result.required.maxLockSeconds))
+        )
     const maxLockedHuman = formatUnits(BigInt(result.required.maxLockedAmount), decimals)
     const receipt: any = await escrow.authorize(
       result.token,
@@ -452,12 +495,14 @@ async function autoFixEscrow(params: {
       maxLockedHuman,
       result.required.maxLockSeconds,
       result.required.maxLockCounts,
-      '0',
+      expiryTimestamp,
       decimals
     )
     actions.push({
       action: 'authorize',
-      note: 'Renewed an expired authorization (reset expiry to indefinite).',
+      note: renewExpiryIndefinite
+        ? 'Renewed an expired authorization with an indefinite expiry (caller-approved).'
+        : `Renewed an expired authorization with a bounded expiry (expiryTimestamp ${expiryTimestamp}). Pass renewExpiryIndefinite=true to renew indefinitely.`,
       tx: receipt?.hash ?? receipt?.transactionHash
     })
   } else if (!result.ready) {
@@ -550,6 +595,14 @@ export function registerEscrowPreflightTool({ server, evmRegistry }: Params): vo
           .optional()
           .describe(
             'When a privateKey is supplied, deposit/authorize automatically (default true).'
+          ),
+        renewExpiryIndefinite: z
+          .boolean()
+          .optional()
+          .describe(
+            'Escrow v2: when auto-fixing an EXPIRED authorization, renew it with an indefinite ' +
+              '(never-expiring) expiry. Default false — renews to a bounded expiry so the ' +
+              'forgotten/compromised-key protection the expiry provides is preserved.'
           )
       }
     },
@@ -560,7 +613,8 @@ export function registerEscrowPreflightTool({ server, evmRegistry }: Params): vo
       payment,
       maxJobDuration,
       parallelJobs,
-      autoFix
+      autoFix,
+      renewExpiryIndefinite
     }) => {
       try {
         const payer = resolveConsumerAddress({ authToken, privateKey, consumerAddress })
@@ -578,7 +632,12 @@ export function registerEscrowPreflightTool({ server, evmRegistry }: Params): vo
           | undefined
         const shouldAutoFix = !result.ready && !!privateKey && autoFix !== false
         if (shouldAutoFix) {
-          autoFixActions = await autoFixEscrow({ evmRegistry, privateKey, result })
+          autoFixActions = await autoFixEscrow({
+            evmRegistry,
+            privateKey,
+            result,
+            renewExpiryIndefinite
+          })
           recordAutoFix(autoFixActions)
           result = await runEscrowPreflight({
             evmRegistry,

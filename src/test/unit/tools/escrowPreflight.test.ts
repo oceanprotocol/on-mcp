@@ -145,33 +145,38 @@ describe('evaluateEscrowReadiness', () => {
     expect(r.canStartThisJob).to.equal(true)
   })
 
-  it('sponsored lock: zero funds is startable when an authorization exists', () => {
-    // A selected subsidy provider may fully pre-fund the lock, so the payer-funded funds/amount
-    // guards are skipped and a zero-deposit user can still start.
+  it('sponsored lock with zero funds is uncertain, not passed (gate proceeds, readiness honest)', () => {
+    // A selected subsidy provider MAY cover the payer portion, but that cannot be verified here.
+    // So the payer-funded checks stay failing (honest) while `payerFundingUncertain` lets the gate
+    // proceed — we neither hard-block a zero-deposit user nor falsely claim the job is funded.
     const r = evaluateEscrowReadiness({
       ...BASE,
       available: 0n,
       authorization: fullAuth,
       subsidyProviders: ['0x0000000000000000000000000000000000000abc']
     })
-    expect(r.canStartThisJob).to.equal(true)
-    expect(r.ready).to.equal(true)
-    expect(r.reason).to.equal(undefined)
-    expect(r.shortfalls.join(' ')).to.not.match(/funds|headroom/)
+    expect(r.canStartThisJob).to.equal(false)
+    expect(r.ready).to.equal(false)
+    expect(r.payerFundingUncertain).to.equal(true)
+    expect(r.reason).to.equal('insufficient_funds')
+    expect(r.shortfalls.join(' ')).to.match(/subsidy providers may cover/)
   })
 
-  it('sponsored lock still requires an authorization to exist', () => {
+  it('sponsored lock is NOT uncertain when an authorization blocker (not funding) applies', () => {
+    // Missing auth is not something a subsidy provider can fix, so the gate must still block.
+    // Funds are sufficient here to isolate the authorization blocker from the funding one.
     const r = evaluateEscrowReadiness({
       ...BASE,
-      available: 0n,
+      available: 3000n,
       authorization: null,
       subsidyProviders: ['0x0000000000000000000000000000000000000abc']
     })
     expect(r.canStartThisJob).to.equal(false)
+    expect(r.payerFundingUncertain).to.equal(false)
     expect(r.reason).to.equal('missing_authorization')
   })
 
-  it('explicit empty subsidyProviders stays payer-funded (not relaxed)', () => {
+  it('explicit empty subsidyProviders stays payer-funded (not uncertain)', () => {
     const r = evaluateEscrowReadiness({
       ...BASE,
       available: 0n,
@@ -179,6 +184,7 @@ describe('evaluateEscrowReadiness', () => {
       subsidyProviders: []
     })
     expect(r.canStartThisJob).to.equal(false)
+    expect(r.payerFundingUncertain).to.equal(false)
     expect(r.reason).to.equal('insufficient_funds')
   })
 
