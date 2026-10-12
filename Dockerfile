@@ -1,5 +1,5 @@
 # Build stage
-FROM node:22-bookworm-slim AS builder
+FROM node:25-bookworm-slim AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY src ./src
 RUN npm run build
 
 # Runtime stage
-FROM node:22-bookworm-slim
+FROM node:25-bookworm-slim
 
 WORKDIR /app
 
