@@ -68,7 +68,7 @@
     "eslint-plugin-prettier": "^5.0.1",
     "eslint-plugin-promise": "^6.1.1",
     "mocha": "^11.1.0",
-    "nyc": "^17.1.0",
+    "nyc": "^18.0.0",
     "prettier": "^3.7.4",
     "release-it": "^21.1.1",
     "sinon": "^19.0.2",
