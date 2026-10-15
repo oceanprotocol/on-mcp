@@ -101,6 +101,14 @@ describe('sliceUtf8', () => {
     expect(out).to.equal(big) // byte-exact reconstruction across every seam
   })
 
+  it('realigns a mid-character start offset backward so the page never begins with U+FFFD', () => {
+    // '€' is 3 bytes (E2 82 AC); offset 1 lands on a continuation byte of the first char.
+    const s = sliceUtf8('€abc', 1, 10)
+    expect(s.offset).to.equal(0) // backed up to the character's start
+    expect(s.text.startsWith('€')).to.equal(true)
+    expect(s.text).to.not.contain('�')
+  })
+
   it('advances by a whole character even when maxBytes is smaller than it', () => {
     // '😀' is 4 UTF-8 bytes; a 1-byte budget must still emit the full char to make progress.
     const s = sliceUtf8('😀rest', 0, 1)

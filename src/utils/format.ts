@@ -49,13 +49,17 @@ export type SlicedText = {
  * replacement characters at the seams. `maxBytes === undefined` returns everything from `offset`.
  *
  * (Callers are expected to resume at `nextOffset`, which is always a character boundary. A hand-
- * picked `offset` landing mid-character is not realigned and would decode that leading partial
- * character to U+FFFD.)
+ * picked `offset` landing mid-character is realigned backward to that character's start, so the
+ * returned text never begins with a split U+FFFD character.)
  */
 export function sliceUtf8(text: string, offset = 0, maxBytes?: number): SlicedText {
   const buf = Buffer.from(text, 'utf8')
   const totalBytes = buf.byteLength
-  const start = Math.max(0, Math.min(offset, totalBytes))
+  let start = Math.max(0, Math.min(offset, totalBytes))
+  // If a hand-picked offset lands inside a multibyte character, back up to that character's start
+  // so the page does not begin with a split (U+FFFD) character. Sequential paging resumes at
+  // `nextOffset`, which is already a boundary, so this is a no-op there.
+  while (start > 0 && start < totalBytes && (buf[start] & 0xc0) === 0x80) start -= 1
   let end = maxBytes === undefined ? totalBytes : Math.min(start + maxBytes, totalBytes)
   // Don't end a page inside a character. A UTF-8 continuation byte is 0x80–0xBF; if the first
   // EXCLUDED byte is one, the character straddling the boundary would be split. Back `end` off to
