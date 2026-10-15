@@ -43,15 +43,33 @@ export type SlicedText = {
 
 /**
  * Byte-bounded window over a text payload, so whole-file reads (docs, resources) can be capped and
- * paged instead of flooding the model's context. Slicing on UTF-8 byte boundaries can clip a
- * multibyte character at an edge (it decodes to the replacement char) — acceptable for the plain
- * text/markdown these guards protect. `maxBytes === undefined` returns everything from `offset`.
+ * paged instead of flooding the model's context. The page end is pulled back to a UTF-8 character
+ * boundary so a multibyte character is never split across pages — paging from offset 0 and
+ * concatenating the decoded pages therefore reconstructs the original text exactly, with no
+ * replacement characters at the seams. `maxBytes === undefined` returns everything from `offset`.
+ *
+ * (Callers are expected to resume at `nextOffset`, which is always a character boundary. A hand-
+ * picked `offset` landing mid-character is not realigned and would decode that leading partial
+ * character to U+FFFD.)
  */
 export function sliceUtf8(text: string, offset = 0, maxBytes?: number): SlicedText {
   const buf = Buffer.from(text, 'utf8')
   const totalBytes = buf.byteLength
   const start = Math.max(0, Math.min(offset, totalBytes))
-  const end = maxBytes === undefined ? totalBytes : Math.min(start + maxBytes, totalBytes)
+  let end = maxBytes === undefined ? totalBytes : Math.min(start + maxBytes, totalBytes)
+  // Don't end a page inside a character. A UTF-8 continuation byte is 0x80–0xBF; if the first
+  // EXCLUDED byte is one, the character straddling the boundary would be split. Back `end` off to
+  // the character's start so the page holds only whole characters (and `nextOffset` begins the next
+  // one cleanly).
+  if (end < totalBytes) {
+    while (end > start && (buf[end] & 0xc0) === 0x80) end -= 1
+    // Budget too small to hold even the first character: include that whole character anyway, so
+    // paging still advances (otherwise `nextOffset === offset` would stall a reader).
+    if (end === start) {
+      end = Math.min(start + 1, totalBytes)
+      while (end < totalBytes && (buf[end] & 0xc0) === 0x80) end += 1
+    }
+  }
   const returnedBytes = end - start
   const truncated = start > 0 || end < totalBytes
   return {

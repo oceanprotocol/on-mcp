@@ -827,7 +827,7 @@ ${P2P_AUTH_SIGNING_POINTER}
 
 **Parameters:** \`index\` is the result index from the job’s \`results\` array; \`offset\` resumes a partial download (bytes); \`maxBytes\` caps how much is collected into base64 (default ${DEFAULT_COMPUTE_RESULT_MAX_BYTES}) so a large blob can't flood context.
 
-**Returns:** \`{ dataBase64, byteLength, truncated, offset, nextOffset? }\`. When \`truncated\` is true, re-call with \`offset = nextOffset\` to fetch the next chunk.`,
+**Returns:** \`{ dataBase64, byteLength, truncated, offset, nextOffset? }\`. When \`truncated\` is true, re-call with \`offset = nextOffset\` to fetch the next chunk. To reassemble a paged result, **base64-decode each page's \`dataBase64\` to bytes and concatenate the decoded bytes in \`offset\` order** — do NOT concatenate the base64 strings (each page is padded independently to its own byte length, so string concatenation yields corrupt output).`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,

@@ -75,6 +75,40 @@ describe('sliceUtf8', () => {
     }
     expect(out).to.equal(big)
   })
+
+  it('does not split a multibyte character at the page boundary', () => {
+    // '€' is 3 UTF-8 bytes (E2 82 AC). A 2-byte cap would split it on a naive byte slice.
+    const s = sliceUtf8('€€€', 0, 2)
+    expect(s.text).to.equal('€') // the whole first character, not a half one
+    expect(s.text).to.not.contain('�')
+    expect(s.returnedBytes).to.equal(3)
+    expect(s.nextOffset).to.equal(3)
+  })
+
+  it('paging multibyte UTF-8 via offset=nextOffset reconstructs the original exactly', () => {
+    // Mixed 1/2/3/4-byte characters so page edges land mid-character on a naive byte slice.
+    const big = 'a—é€😀 ascii '.repeat(400).normalize()
+    let out = ''
+    let offset = 0
+    for (let i = 0; i < 100000; i += 1) {
+      const s = sliceUtf8(big, offset, 7) // 7 bytes rarely aligns to a char boundary
+      expect(s.text).to.not.contain('�') // no corrupted/split characters in any page
+      out += s.text
+      if (s.nextOffset === undefined) break
+      expect(s.nextOffset).to.be.greaterThan(offset)
+      offset = s.nextOffset
+    }
+    expect(out).to.equal(big) // byte-exact reconstruction across every seam
+  })
+
+  it('advances by a whole character even when maxBytes is smaller than it', () => {
+    // '😀' is 4 UTF-8 bytes; a 1-byte budget must still emit the full char to make progress.
+    const s = sliceUtf8('😀rest', 0, 1)
+    expect(s.text).to.equal('😀')
+    expect(s.returnedBytes).to.equal(4)
+    expect(s.nextOffset).to.equal(4)
+    expect(s.nextOffset).to.be.greaterThan(s.offset)
+  })
 })
 
 async function* streamOf(...chunks: Uint8Array[]): AsyncIterable<Uint8Array> {
