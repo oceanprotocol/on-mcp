@@ -5,6 +5,7 @@ import { stringifyError, textContent } from '../utils/format.js'
 import { registerAccessListTools } from './accesslist.js'
 import { registerEscrowTools } from './escrow.js'
 import { registerEscrowPreflightTool } from './escrowPreflight.js'
+import { registerSubsidyTools } from './subsidy.js'
 import {
   commandResultPayload,
   getProviderOrThrow,
@@ -199,5 +200,6 @@ export function registerEvmContractTools({ server, evmRegistry }: EvmToolParams)
 
   registerEscrowTools({ server, evmRegistry })
   registerEscrowPreflightTool({ server, evmRegistry })
+  registerSubsidyTools({ server, evmRegistry })
   registerAccessListTools({ server, evmRegistry })
 }

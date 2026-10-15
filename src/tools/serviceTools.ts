@@ -186,6 +186,7 @@ export async function serviceEscrowGate(params: {
     completeSignature?: { consumerAddress: string }
     skipEscrowPreflight?: boolean
     parallelJobs?: number
+    subsidyProviders?: string[]
   }
   env: ComputeEnvironment
   chainId: number
@@ -229,13 +230,18 @@ export async function serviceEscrowGate(params: {
       payment: built.payment,
       maxJobDuration: params.durationSeconds,
       parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      // Forward the same tri-state selection sent to the node: a sponsored lock relaxes the
+      // payer-funded gate (a fully-sponsored user can start/extend with zero deposit).
+      subsidyProviders: args.subsidyProviders,
       caller: 'service_gate'
     })
   } catch {
     return undefined
   }
 
-  if (preflight.canStartThisJob) return undefined
+  // Proceed when the only blocker is payer funding a selected subsidy provider may cover
+  // (payerFundingUncertain) — the node/contract settles the payer portion authoritatively.
+  if (preflight.canStartThisJob || preflight.payerFundingUncertain) return undefined
   return structuredError(command, {
     error: 'escrow_preflight_failed',
     message:
@@ -714,6 +720,14 @@ ${P2P_AUTH_SIGNING_GUIDE}
             'Seconds to keep the service up and pay for. Must be ≤ env.maxServiceDuration (advertised; rejected client-side when exceeded) and is also billed at a floor of env.minServiceDuration. A stricter serviceOnDemand.maxDurationSeconds node-config cap (default 86400s) may still apply and is not advertised. The resource reservation is held for this whole window even if you stop early.'
           ),
         payment: servicePaymentSchema,
+        subsidyProviders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
+              'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
+              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+          ),
         parallelJobs: z
           .number()
           .int()
@@ -812,7 +826,10 @@ ${P2P_AUTH_SIGNING_GUIDE}
           // minimums on top — see resourceMinimumWarnings.)
           ...(resources.length ? { resources } : {}),
           duration: args.duration,
-          payment: args.payment
+          payment: args.payment,
+          // Tri-state subsidy-provider selection (ocean-node #1485). Only set the field when the
+          // caller supplied it, so an omitted value keeps the node default (an explicit [] = none).
+          ...(args.subsidyProviders ? { subsidyProviders: args.subsidyProviders } : {})
         }
 
         const started = await nodeClient.serviceStart(node, auth, params, ms)
@@ -1024,6 +1041,14 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
             'Extra seconds to add. This alone is what gets billed — not the new total duration.'
           ),
         payment: servicePaymentSchema,
+        subsidyProviders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
+              'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
+              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+          ),
         parallelJobs: z.number().int().positive().optional(),
         skipEscrowPreflight: z
           .boolean()
@@ -1080,7 +1105,8 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
           args.serviceId,
           args.additionalDuration,
           args.payment,
-          ms
+          ms,
+          args.subsidyProviders
         )
         return commandResultPayload('serviceExtend', {
           services: (result ?? []).map(decorateServiceJob),

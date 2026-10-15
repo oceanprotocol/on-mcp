@@ -319,6 +319,10 @@ export class NodeClient {
       policyServer?: unknown
       queueMaxWaitTime?: number
       dockerRegistryAuth?: dockerRegistryAuth
+      outputBucketId?: string
+      // Consumer-selected subsidy providers (tri-state): omit = node default, [] = none,
+      // populated = only these. See ocean-node #1485.
+      subsidyProviders?: string[]
     }
   ): Promise<T> {
     try {
@@ -338,7 +342,9 @@ export class NodeClient {
         params.policyServer,
         AbortSignal.timeout(timeout),
         params.queueMaxWaitTime,
-        params.dockerRegistryAuth
+        params.dockerRegistryAuth,
+        params.outputBucketId,
+        params.subsidyProviders
       )) as T
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`
@@ -1071,7 +1077,10 @@ export class NodeClient {
     serviceId: string,
     additionalDuration: number,
     payment: ServicePayment,
-    timeout: number
+    timeout: number,
+    // Consumer-selected subsidy providers (tri-state): omit = node default, [] = none,
+    // populated = only these. See ocean-node #1485.
+    subsidyProviders?: string[]
   ): Promise<ServiceJob[]> {
     try {
       return await getP2p().serviceExtend(
@@ -1080,7 +1089,8 @@ export class NodeClient {
         serviceId,
         additionalDuration,
         payment,
-        AbortSignal.timeout(timeout)
+        AbortSignal.timeout(timeout),
+        subsidyProviders
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`

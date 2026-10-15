@@ -47,6 +47,7 @@ function preflightResult(
   return {
     ready: true,
     canStartThisJob: true,
+    payerFundingUncertain: false,
     payer: PAYER,
     payee: PAYEE,
     token: TOKEN,
