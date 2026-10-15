@@ -268,7 +268,7 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
     {
       title: 'Subsidy: budget buckets & remaining',
       description:
-        'Reads a subsidy provider budget for a payer + token (SubsidyView, read-only): the per-window ' +
+       'Reads a subsidy provider budget for a payer + token (SubsidyView, read-only): the per-window ' +
         'buckets (limit/used/remaining; check `unlimited` first) via subsidyBuckets and the overall ' +
         'remainingSubsidy. Amounts are in human-readable token units. NOTE: `remaining` is additionally ' +
         'gated to 0 by several independent gates — the per-token config (paused, token disabled, or ' +
