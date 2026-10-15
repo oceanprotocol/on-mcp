@@ -1,6 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
   isUnsupportedInterfaceError,
+  OneTimeSubsidyProvider,
+  OPFSubsidyProvider,
   SubsidyKind,
   SubsidyMode,
   SubsidyModeConfig,
@@ -64,8 +66,12 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
         'Reads a subsidy provider contract (SubsidyView, read-only): its `version`, `subsidyKind` ' +
         '(ROLLING_WINDOW/ONE_TIME/OTHER), `subsidyModeConfig` (BOTH/REFUND_ONLY/PREPAID_ONLY), ERC-165 ' +
         'capability flags (isSubsidyView, isSubsidyProvider, isSubsidyModeConfig, isSubsidyLockProvider), ' +
-        'allowed job types, and the token `availableBalance`. Pass `payer`/`node` to also check ' +
-        'isUserAllowed/isNodeAllowed. Unsupported reads come back null instead of throwing.',
+        'allowed job types, and the token `availableBalance`. Pass `token` to also read the per-token ' +
+        '`tokenConfig` (keyed on subsidyKind: ONE_TIME -> getTokenConfig {pctBps, defaultCredit, enabled}; ' +
+        'ROLLING_WINDOW -> getTokenLimits {pctBps, daily, weekly, monthly, enabled}). `pctBps` is the ' +
+        'per-job ceiling in basis points (0 = grant nothing, 10000 = up to 100% of the job). Pass ' +
+        '`payer`/`node` to also check isUserAllowed/isNodeAllowed. Unsupported reads come back null ' +
+        'instead of throwing.',
       inputSchema: {
         ...contractInputSchema,
         token: z
@@ -107,6 +113,27 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
         const modeConfig = isSubsidyModeConfig
           ? await safe(() => view.subsidyModeConfig())
           : null
+        // Per-token config lives on the kind-specific wrapper, not on the generic SubsidyView:
+        // ONE_TIME -> getTokenConfig, ROLLING_WINDOW (OPF) -> getTokenLimits. safe() maps an
+        // unsupported read (wrong kind / provider without the method) to null.
+        const signer = getVoidSigner(evmRegistry, chainId) as any
+        const addr = getAddress(contractAddress)
+        const tokenConfig =
+          token && kind === SubsidyKind.ONE_TIME
+            ? await safe(() =>
+                new OneTimeSubsidyProvider(signer, addr, chainId).getTokenConfig(
+                  getAddress(token),
+                  tokenDecimals
+                )
+              )
+            : token && kind === SubsidyKind.ROLLING_WINDOW
+              ? await safe(() =>
+                  new OPFSubsidyProvider(signer, addr, chainId).getTokenLimits(
+                    getAddress(token),
+                    tokenDecimals
+                  )
+                )
+              : null
         return commandResultPayload('subsidy_get_info', {
           version: versionNum,
           subsidyKind: kind === null ? null : (SubsidyKind[kind] ?? String(kind)),
@@ -118,6 +145,7 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
           isSubsidyProvider,
           isSubsidyModeConfig,
           isSubsidyLockProvider,
+          tokenConfig,
           allowedJobTypes: await safe(() => view.getAllowedJobTypes()),
           availableBalance: token
             ? await safe(() => view.availableBalance(getAddress(token), tokenDecimals))
@@ -242,7 +270,10 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
       description:
         'Reads a subsidy provider budget for a payer + token (SubsidyView, read-only): the per-window ' +
         'buckets (limit/used/remaining; check `unlimited` first) via subsidyBuckets and the overall ' +
-        'remainingSubsidy. Amounts are in human-readable token units.',
+        'remainingSubsidy. Amounts are in human-readable token units. NOTE: `remaining` is additionally ' +
+        'gated to 0 by the token config (paused, token disabled, payer not allow-listed, or pctBps == 0), ' +
+        'so it can legitimately be 0 while the per-window `buckets` still show headroom — check the ' +
+        'per-token `tokenConfig` via subsidy_get_info to see which gate applies.',
       inputSchema: {
         ...contractInputSchema,
         payer: z.string().describe('Payer address.'),
