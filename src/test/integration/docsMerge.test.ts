@@ -173,12 +173,19 @@ describe('docs MCP merge', () => {
       docsIndex
     })
 
+    // Built-in guide resources + the compact docs catalog are registered as static resources;
+    // individual doc files are no longer one-resource-per-file (they resolve via the
+    // `ocean://docs/{path}` template and get_doc/get_resource) to keep `resources/list` small.
     expect(fake.resources.map((resource) => resource.uri)).to.include.members([
       'ocean://docs/c2d-algorithm-authoring',
       'ocean://docs/service-on-demand',
+      'ocean://docs/auth-signing',
       'ocean://evm/supported-chains',
-      'ocean://docs/guide/README.md'
+      'ocean://docs/index'
     ])
+    expect(fake.resources.map((resource) => resource.uri)).to.not.include(
+      'ocean://docs/guide/README.md'
+    )
 
     const resolved = await getResourceContent(
       {

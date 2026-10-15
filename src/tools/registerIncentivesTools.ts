@@ -2,7 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod/v4'
 
 import type { IncentivesClient } from '../clients/incentivesClient.js'
-import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
+import { stringifyError, textContent } from '../utils/format.js'
+import { commandResultPayload } from './evmToolUtils.js'
 
 type Params = {
   server: McpServer
@@ -37,15 +38,6 @@ Notes:
 - **address** must be one of the node's allowed admin addresses.
 - **expiryTimestamp** must still be in the future when the API receives it.
 - Smart-contract wallets may validate through ERC-1271 instead of EOA recovery, but should still provide an address-compatible signature for the same timestamp.`
-
-function commandResultPayload(command: string, result: unknown) {
-  return textContent(
-    toPrettyJson({
-      command,
-      result
-    })
-  )
-}
 
 function errorPayload(error: unknown) {
   return {

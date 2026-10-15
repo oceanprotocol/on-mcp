@@ -72,6 +72,29 @@ If you reimplement signing without ocean.js, your wallet must produce the same E
 
 **computeStatus** still requires authToken or completeSignature (ocean.js passes consumerAddress and authorization); there is no separate extra signature field in the body beyond what the library adds.`
 
+/**
+ * Compact pointers used *inside tool descriptions* in place of the full guide blocks above. The
+ * full text now lives in built-in MCP resources (see `resourceCatalog.ts`); pasting it verbatim
+ * into ~25 tool descriptions dominated the `tools/list` manifest. Each pointer keeps the one or two
+ * lines an agent needs to act plus a link to the resource for the rest. URIs are kept as string
+ * literals here (not imported) to avoid a resources↔tools import cycle; they must match the URIs in
+ * `resourceCatalog.ts`.
+ */
+export const P2P_AUTH_SIGNING_POINTER = `### Authentication (signed request)
+Authenticated call: provide **exactly one** of \`authToken\` (a node JWT) or \`completeSignature\`. The full signing workflow — identity modes, the plaintext message layout, \`nonce = getNonce + 1\`, ocean.js EIP-191 hashing, and the protocolCommand-per-operation table — is the resource **\`ocean://docs/auth-signing\`** (fetch with \`get_resource\`); use the row matching this tool's protocolCommand (named above). No key or token? Mint one at https://dashboard.oncompute.ai/nodes/tokens (needs the target node peerID).`
+
+export const P2P_COMPUTE_PAYMENT_POINTER = `### Cost & escrow lock
+Trust \`payment.amount\` (raw base units) — never self-compute cost; denominate with \`get_erc20_token_info\` before showing a price. \`payment.minLockSeconds\` (the escrow-lock requirement) is **not** the job duration and is always ≥ it. Full duration-vs-lock rules, the typical paid flow and authorization sizing: resource **\`ocean://docs/compute-payment\`** (\`get_resource\`).`
+
+export const P2P_COMPUTE_POLLING_POINTER = `### After starting: poll to completion
+Poll \`computeStatus\` every ~5–10s until terminal — **do not** pause to ask between polls. \`70\`/\`71\` = success → fetch with \`getComputeResult\`; a failed/expired status → stop and report; anything else → keep polling. Full status-code map: resource **\`ocean://docs/compute-polling\`**.`
+
+export const STORAGE_OBJECT_SHAPE_POINTER = `### fileObject shape
+Each \`type\` (\`url\`/\`ipfs\`/\`arweave\`/\`s3\`/\`ftp\`/\`nodePersistentStorage\`) has its own required fields — e.g. a \`url\` object needs a lowercase \`method\`, and \`nodePersistentStorage\` is datasets-only. Full per-type field reference: resource **\`ocean://docs/storage-object-shape\`** (\`get_resource\`).`
+
+export const P2P_PERSISTENT_STORAGE_POINTER = `### Node capability check (required first)
+Call \`node_status\` on the **same** target first — the persistent-storage tools work only when the status payload includes \`persistentStorage\`. Buckets are scoped to the \`authToken\` consumer, so reuse the same token across create/upload/list/read/delete and the consuming compute job. Details: resource **\`ocean://docs/persistent-storage\`**.`
+
 export const P2P_ADMIN_CONFIG_WARNING = `**Operator-only:** Misuse can break or leak node configuration. Payload must match ocean-node signing expectations for \`fetchConfig\` / \`pushConfig\`.`
 
 /** Shape rules for fileObject — verified against ocean-node @types/fileObject.ts and @types/PersistentStorage.ts. Required fields per type. */

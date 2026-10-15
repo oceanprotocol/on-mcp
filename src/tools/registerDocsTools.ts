@@ -9,7 +9,7 @@ import {
 } from '../docs/config.js'
 import type { DocIndex } from '../docs/loader.js'
 import { search } from '../docs/search.js'
-import { textContent } from '../utils/format.js'
+import { sliceUtf8, textContent } from '../utils/format.js'
 
 type ValidationIssue = {
   level: 'error' | 'warning'
@@ -31,6 +31,8 @@ type Params = {
   docsIndex: DocIndex
 }
 
+/** Default byte cap for get_doc so a whole large file can't be dumped into context in one call. */
+const DEFAULT_DOC_MAX_BYTES = 40 * 1024
 const BASE_CHAIN_ID = '8453'
 const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913'
 const BASE_COMPY = '0x5494711392a67DA50D3bC7b1fcC2d1877cFaA4d2'
@@ -385,16 +387,33 @@ export function registerDocsTools({ server, docsIndex }: Params): void {
     {
       title: 'Get Ocean doc by URI',
       description:
-        'Retrieve the full content of a specific documentation file by its URI. Use list_topics to discover available URIs.',
+        'Retrieve the content of a specific documentation file by its URI. Use list_topics to ' +
+        `discover available URIs. Content is capped at ~${Math.round(
+          DEFAULT_DOC_MAX_BYTES / 1024
+        )} KiB per call (reports truncated with a nextOffset); pass offset/maxBytes to page a large file.`,
       inputSchema: {
         uri: z
           .string()
           .describe(
             'The full URI of the document, e.g. "ocean://docs/guide/ocean-node/getting-started.md".'
+          ),
+        offset: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe('Byte offset to start from when paging a large doc. Default 0.'),
+        maxBytes: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            `Max UTF-8 bytes of body to return (default ${DEFAULT_DOC_MAX_BYTES}). Stops there and reports truncated:true with nextOffset.`
           )
       }
     },
-    ({ uri }) => {
+    ({ uri, offset, maxBytes }) => {
       const directMatch = docsIndex.find((entry) => entry.uri === uri)
       const entry =
         directMatch ??
@@ -406,9 +425,20 @@ export function registerDocsTools({ server, docsIndex }: Params): void {
         )
       }
 
-      return textContent(
-        `# ${entry.title}\n\nURI: ${entry.uri}\nSection: ${entry.section}\nFile type: ${entry.mimeType}\n\n---\n\n${entry.content}`
+      const sliced = sliceUtf8(
+        entry.content,
+        offset ?? 0,
+        maxBytes ?? DEFAULT_DOC_MAX_BYTES
       )
+      const header =
+        `# ${entry.title}\n\nURI: ${entry.uri}\nSection: ${entry.section}\n` +
+        `File type: ${entry.mimeType}\nBytes: ${sliced.offset}-${
+          sliced.offset + sliced.returnedBytes
+        } of ${sliced.totalBytes}` +
+        (sliced.nextOffset !== undefined
+          ? ` (truncated — re-call with offset=${sliced.nextOffset} for more)`
+          : '')
+      return textContent(`${header}\n\n---\n\n${sliced.text}`)
     }
   )
 

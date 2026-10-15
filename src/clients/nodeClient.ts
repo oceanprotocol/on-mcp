@@ -78,7 +78,10 @@ export type CollectedStream = {
  * Shared by the compute-result, compute-log and service-log collectors — service logs default
  * to full container history, which for a days-old service is far too large to hand a model.
  */
-async function collectStream(raw: unknown, maxBytes?: number): Promise<CollectedStream> {
+export async function collectStream(
+  raw: unknown,
+  maxBytes?: number
+): Promise<CollectedStream> {
   const iterable = raw as AsyncIterable<Uint8Array>
   const chunks: Uint8Array[] = []
   let kept = 0
@@ -440,26 +443,26 @@ export class NodeClient {
     jobId: string,
     index: number,
     offset: number,
-    timeout: number
-  ): Promise<{ dataBase64: string; byteLength: number }> {
+    timeout: number,
+    maxBytes?: number
+  ): Promise<{
+    dataBase64: string
+    byteLength: number
+    truncated: boolean
+    offset: number
+    nextOffset?: number
+  }> {
     try {
       const stream = await getP2p().getComputeResult(node, auth, jobId, index, offset)
-      const chunks: Uint8Array[] = []
-      for await (const chunk of stream) {
-        const u8 = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk)
-        chunks.push(u8)
-      }
-      let total = 0
-      for (const c of chunks) total += c.length
-      const merged = new Uint8Array(total)
-      let pos = 0
-      for (const c of chunks) {
-        merged.set(c, pos)
-        pos += c.length
-      }
+      // Cap collection so an uncapped base64 blob can't flood the model's context. `offset` is a
+      // wire offset the node resumes from, so pairing it with maxBytes lets a caller page a result.
+      const collected = await collectStream(stream, maxBytes)
       return {
-        dataBase64: Buffer.from(merged).toString('base64'),
-        byteLength: total
+        dataBase64: Buffer.from(collected.bytes).toString('base64'),
+        byteLength: collected.byteLength,
+        truncated: collected.truncated,
+        offset,
+        ...(collected.truncated ? { nextOffset: offset + collected.byteLength } : {})
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : `${error}`
