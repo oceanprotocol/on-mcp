@@ -10,13 +10,7 @@
  * is exactly how the 11 Service-on-Demand tools would otherwise have slipped through.
  */
 export type ToolCategory =
-  | 'assets'
-  | 'evm'
-  | 'p2p'
-  | 'incentives'
-  | 'docs'
-  | 'resources'
-  | 'services'
+  'assets' | 'evm' | 'p2p' | 'incentives' | 'docs' | 'resources' | 'services'
 
 const RULES: Array<{ pattern: RegExp; category: ToolCategory }> = [
   { pattern: /^incentives_/, category: 'incentives' },
