@@ -271,9 +271,12 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
         'Reads a subsidy provider budget for a payer + token (SubsidyView, read-only): the per-window ' +
         'buckets (limit/used/remaining; check `unlimited` first) via subsidyBuckets and the overall ' +
         'remainingSubsidy. Amounts are in human-readable token units. NOTE: `remaining` is additionally ' +
-        'gated to 0 by the token config (paused, token disabled, payer not allow-listed, or pctBps == 0), ' +
-        'so it can legitimately be 0 while the per-window `buckets` still show headroom — check the ' +
-        'per-token `tokenConfig` via subsidy_get_info to see which gate applies.',
+        'gated to 0 by several independent gates — the per-token config (paused, token disabled, or ' +
+        'pctBps == 0) AND the payer allow-list — so it can legitimately be 0 while the per-window ' +
+        '`buckets` still show headroom. To diagnose, call subsidy_get_info with `token` (its ' +
+        '`tokenConfig` shows the paused/disabled/pctBps gates) and with `payer` (inspect the returned ' +
+        '`isUserAllowed` for the allow-list gate). `tokenConfig` alone does not reveal the ' +
+        'payer-specific allow-list result or identify every applicable gate.',
       inputSchema: {
         ...contractInputSchema,
         payer: z.string().describe('Payer address.'),

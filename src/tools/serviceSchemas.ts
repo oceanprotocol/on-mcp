@@ -122,6 +122,27 @@ Pass \`userData\` as a **plain JSON object** of env-var name → value. ocean.js
 - Validate against the template's \`userConfigurableEnvVars\`: keys not listed there are a **warning**, not an error (a template is a suggestion, not an allow-list), but a \`validation\` regex that fails is an error. The failing **value is never printed**.
 - \`envVarKeys\` on a template are the **operator's** env vars — keys are exposed, values never are. Do **not** send them back in \`userData\`.`
 
+/**
+ * Compact pointers used inside tool descriptions in place of the full service guides above. The
+ * full text now lives in built-in MCP resources (see `resourceCatalog.ts`); these keep the few
+ * lines an agent needs plus a link. URIs are string literals to avoid a resources↔tools import
+ * cycle and must match the URIs registered in `resourceCatalog.ts`.
+ */
+export const SERVICE_OVERVIEW_POINTER = `### What a service is
+A **long-running container** paid for up front via escrow; it exposes network endpoints while it runs rather than producing output files. Start is **asynchronous** (poll \`serviceStatus\`), the resource reservation is held for the whole paid window (stopping early does **not** refund), and endpoints are not authenticated by the node. Full model: resource **\`ocean://docs/service-overview\`** (\`get_resource\`).`
+
+export const SERVICE_PAYMENT_POINTER = `### Paying for a service — no server-side quote
+There is no \`initializeService\`: cost is client-**estimated** (\`estimateServiceCost\`) and node-enforced. Pipe that \`payment\` object into \`escrow_preflight\`, then \`serviceStart\`. Send \`payment.token\` **verbatim as the env advertised it** (matched case-sensitively) and never self-denominate the raw amount. Full caveats (min-duration floor, silent-0 pricing, hidden lock padding): resource **\`ocean://docs/service-payment\`**.`
+
+export const SERVICE_POLLING_POINTER = `### After starting: poll to Running
+\`serviceStart\`/\`serviceRestart\` return immediately with a \`serviceId\`. Poll \`serviceStatus\` every ~5–10s until it settles — **40 Running** → report \`endpoints[].url\`; **50 Stopping is NOT an end state** (keep polling to 70); \`12\`/\`14\`/\`15\`/\`99\` = terminal failure. Full status table: resource **\`ocean://docs/service-polling\`**.`
+
+export const SERVICE_RESTART_POINTER = `### Restart is atomic: REUSE or RESPEC
+No container params → **REUSE** the stored spec. **Any** of \`image\`/\`tag\`/\`checksum\`/\`dockerfile\`/\`dockerCmd\`/\`dockerEntrypoint\`/\`userData\` → **RESPEC**: \`image\` becomes mandatory and anything omitted is empty, not inherited (so re-send the full spec to change one field). Details + the secret-rotation recipe: resource **\`ocean://docs/service-restart\`**.`
+
+export const SERVICE_USERDATA_POINTER = `### userData — plaintext in, keys only out
+Pass \`userData\` as a plain JSON object (name → value); ocean.js ECIES-encrypts it to the node — never pass a pre-encrypted string. ⚠️ Values transit the chat/LLM, so prefer short-lived tokens. Responses echo **keys only**, and the node strips \`userData\` from every response. Details: resource **\`ocean://docs/service-userdata\`**.`
+
 export const SERVICE_AUTH_NOTE = `## Prefer \`authToken\` for services
 A service lifecycle is **many signed calls** (start → poll status ×N → extend → restart → stop → logs), and every \`completeSignature\` needs a **fresh \`getNonce() + 1\`**. Two signed calls issued concurrently against the same (node, consumer) pair can reuse a stale nonce and one will be rejected — so if you must use \`completeSignature\`, serialize the calls and never fire a signed poll while another signed request is in flight. An \`authToken\` sidesteps all of this. Tokens are **per-node**; mint one at https://dashboard.oncompute.ai/nodes/tokens (needs the target node peerID) or via \`create_auth_token\`.`
 

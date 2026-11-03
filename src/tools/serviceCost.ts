@@ -350,9 +350,42 @@ export type DecoratedServiceJob = Record<string, unknown> & {
 }
 
 /**
+ * Node-provided `ServiceJob` fields an agent actually uses, projected onto the response. This
+ * replaces a blanket `...job` spread, which echoed low-value plumbing (`clusterHash`,
+ * `containerId`, `networkId`, `containerImage`) and the raw `expiresAt` that `expiresAtIso`
+ * already supersedes, on every service in every list. Fields absent on a given job (e.g. the
+ * sanitized `getServices` listing omits `dockerCmd`/`dockerEntrypoint`) are simply skipped.
+ */
+const DECORATED_JOB_FIELDS = [
+  'serviceId',
+  'environment',
+  'owner',
+  'image',
+  'tag',
+  'checksum',
+  'dockerfile',
+  'additionalDockerFiles',
+  'dockerCmd',
+  'dockerEntrypoint',
+  'status',
+  'statusText',
+  'dateCreated',
+  'updatedAt',
+  'duration',
+  'exposedPorts',
+  'endpoints',
+  'resources',
+  'payment',
+  'extendPayments',
+  'runtimeMetrics',
+  'metadata'
+] as const
+
+/**
  * Add the fields an agent needs but the node does not send: a status label that covers `45`,
  * an ISO expiry, whether polling should stop, and whether the start payment was claimed (a
- * precondition for restart).
+ * precondition for restart). Projects the node job onto a whitelist (see `DECORATED_JOB_FIELDS`)
+ * rather than spreading it wholesale, to keep per-call payloads small.
  */
 export function decorateServiceJob(job: ServiceJob): DecoratedServiceJob {
   const warnings: string[] = []
@@ -369,8 +402,14 @@ export function decorateServiceJob(job: ServiceJob): DecoratedServiceJob {
     )
   }
 
+  const src = job as unknown as Record<string, unknown>
+  const picked: Record<string, unknown> = {}
+  for (const key of DECORATED_JOB_FIELDS) {
+    if (src[key] !== undefined) picked[key] = src[key]
+  }
+
   return {
-    ...(job as unknown as Record<string, unknown>),
+    ...picked,
     statusLabel: serviceStatusLabel(job.status, job.statusText),
     isTerminal: isServiceTerminal(job.status),
     expiresAtIso:

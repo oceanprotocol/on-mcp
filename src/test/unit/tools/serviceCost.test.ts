@@ -383,4 +383,50 @@ describe('decorateServiceJob', () => {
       decorateServiceJob(job({ status: 40, statusText: 'Up 3m' })).statusLabel
     ).to.equal('Up 3m')
   })
+
+  it('keeps the fields an agent needs and drops node plumbing', () => {
+    const endpoints = [
+      { containerPort: 8000, hostPort: 31042, url: 'http://node.example.com:31042' }
+    ]
+    const d = decorateServiceJob(
+      job({
+        serviceId: 'svc-9',
+        environment: 'env-1',
+        owner: '0xowner',
+        image: 'vllm/vllm-openai',
+        endpoints,
+        resources: [{ id: 'cpu', amount: 2 }],
+        payment: { chainId: 1, token: '0xtok', claimTx: '0xclaim' },
+        expiresAt: 1735689600000,
+        // Node plumbing that should NOT be echoed on every service in every list.
+        clusterHash: 'c-hash',
+        containerImage: 'sha256:deadbeef',
+        containerId: 'ctr-1',
+        networkId: 'net-1'
+      } as never)
+    )
+
+    // Needed fields survive (endpoints[].url in particular).
+    expect(d.serviceId).to.equal('svc-9')
+    expect(d.environment).to.equal('env-1')
+    expect(d.owner).to.equal('0xowner')
+    expect(d.image).to.equal('vllm/vllm-openai')
+    expect(d.endpoints).to.deep.equal(endpoints)
+    expect(d.resources).to.deep.equal([{ id: 'cpu', amount: 2 }])
+    expect((d.payment as { claimTx: string }).claimTx).to.equal('0xclaim')
+
+    // Plumbing and the raw expiry (superseded by expiresAtIso) are dropped.
+    expect(d).to.not.have.property('clusterHash')
+    expect(d).to.not.have.property('containerImage')
+    expect(d).to.not.have.property('containerId')
+    expect(d).to.not.have.property('networkId')
+    expect(d).to.not.have.property('expiresAt')
+    expect(d.expiresAtIso).to.equal('2025-01-01T00:00:00.000Z')
+  })
+
+  it('never echoes a userData value even if the node returns one', () => {
+    const d = decorateServiceJob(job({ userData: { HF_TOKEN: 'secret' } } as never))
+    expect(d).to.not.have.property('userData')
+    expect(JSON.stringify(d)).to.not.contain('secret')
+  })
 })

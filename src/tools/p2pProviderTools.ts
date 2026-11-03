@@ -4,9 +4,9 @@ import { DDO, ProviderInstance, PROTOCOL_COMMANDS } from '@oceanprotocol/lib'
 import { Wallet } from 'ethers'
 import { NodeClient } from '../clients/nodeClient.js'
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
-import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
+import { stringifyError, textContent, toCompactJson } from '../utils/format.js'
 import { decodeAuthTokenAddress } from '../utils/auth.js'
-import { toJsonFriendly } from './evmToolUtils.js'
+import { commandResultPayload, toJsonFriendly } from './evmToolUtils.js'
 import {
   DEFAULT_PARALLEL_JOBS,
   runEscrowPreflight,
@@ -15,15 +15,15 @@ import {
 import {
   EPHEMERAL_CONSUMER_KEY_DISCLAIMER,
   findProviderInputSchema,
-  P2P_COMPUTE_PAYMENT_GUIDE,
-  P2P_COMPUTE_POLLING_GUIDE,
+  P2P_COMPUTE_PAYMENT_POINTER,
+  P2P_COMPUTE_POLLING_POINTER,
   P2P_RECOMMENDED_NODES_GUIDE,
-  STORAGE_OBJECT_SHAPE_GUIDE,
+  STORAGE_OBJECT_SHAPE_POINTER,
   nodeTargetSchema,
   parseNodeTarget,
   P2P_ADMIN_CONFIG_WARNING,
-  P2P_AUTH_SIGNING_GUIDE,
-  P2P_PERSISTENT_STORAGE_PREREQUISITE,
+  P2P_AUTH_SIGNING_POINTER,
+  P2P_PERSISTENT_STORAGE_POINTER,
   p2pAuthFieldSchemas,
   resolveAuth,
   timeoutMs
@@ -36,14 +36,8 @@ type Params = {
   evmRegistry?: EvmProviderRegistry
 }
 
-function commandResultPayload(command: string, result: unknown) {
-  return textContent(
-    toPrettyJson({
-      command,
-      result: toJsonFriendly(result)
-    })
-  )
-}
+/** Default byte cap for getComputeResult so an uncapped base64 blob can't flood the context. */
+const DEFAULT_COMPUTE_RESULT_MAX_BYTES = 1024 * 1024
 
 /**
  * On-chain escrow gate for paid computeStart. Resolves the payer from the auth token / signature
@@ -108,7 +102,7 @@ async function escrowPreflightGate(
     if (!preflight.canStartThisJob && !preflight.payerFundingUncertain) {
       return {
         ...textContent(
-          toPrettyJson({
+          toCompactJson({
             command: 'computeStart',
             error: 'escrow_preflight_failed',
             message:
@@ -342,7 +336,7 @@ ${P2P_RECOMMENDED_NODES_GUIDE}`,
       title: 'P2P validate DDO',
       description: `Runs \`validateDDO\` on the node with a full DDO payload. Requires auth.
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand for signing:** \`validateDDO\` (PROTOCOL_COMMANDS.VALIDATE_DDO).
 
@@ -441,7 +435,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P get file info',
       description: `Resolves file metadata via \`fileInfo\` (\`P2pProvider.getFileInfo\`). No consumer signature.
 
-${STORAGE_OBJECT_SHAPE_GUIDE}
+${STORAGE_OBJECT_SHAPE_POINTER}
 
 **Returns:** Array of \`FileInfo\` entries (length 1 for a single object).`,
       inputSchema: {
@@ -484,7 +478,7 @@ Example — persistent-storage dataset (use the \`bucketId\`/\`fileName\` from \
 { "fileObject": { "type": "nodePersistentStorage", "bucketId": "<id>", "fileName": "<name>" } }
 \`\`\`
 
-${STORAGE_OBJECT_SHAPE_GUIDE}`
+${STORAGE_OBJECT_SHAPE_POINTER}`
   )
 
   const computeAlgorithmSchema = z
@@ -503,7 +497,7 @@ ${STORAGE_OBJECT_SHAPE_GUIDE}`
       title: 'P2P initialize compute',
       description: `Pricing/validation for compute (\`initializeCompute\`). No auth required. **Always call before \`computeStart\` to learn the real cost.**
 
-${P2P_COMPUTE_PAYMENT_GUIDE}
+${P2P_COMPUTE_PAYMENT_POINTER}
 
 **Returns:** \`{ algorithm?, datasets?, payment: { escrowAddress, payee, chainId, token, amount, minLockSeconds } }\`. \`amount\` is raw token units; \`minLockSeconds\` is the escrow-lock requirement (not job duration).`,
       inputSchema: {
@@ -579,11 +573,11 @@ ${P2P_COMPUTE_PAYMENT_GUIDE}
 - **No auth token?** Mint one at **https://dashboard.oncompute.ai/nodes/tokens** (needs the target node peerID), then pass it as \`authToken\`.
 - **Escrow not funded/authorized?** Open **https://dashboard.oncompute.ai/profile/escrow** (Manage escrow) and deposit / authorize for the node's payee address, then retry.
 
-${P2P_COMPUTE_PAYMENT_GUIDE}
+${P2P_COMPUTE_PAYMENT_POINTER}
 
-${P2P_COMPUTE_POLLING_GUIDE}
+${P2P_COMPUTE_POLLING_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`startCompute\`. **Returns:** \`ComputeJob\` or array.`,
       inputSchema: {
@@ -676,9 +670,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
 
 **Need auth?** Pass an existing JWT as \`authToken\`, or call \`create_auth_token\` first (ephemeral or own key) and pass the returned JWT. Ephemeral works on open free envs; check \`env.free.access\` from getComputeEnvironments — if \`addresses\` or \`accessLists\` is non-empty, the consumer must be allowed.
 
-${P2P_COMPUTE_POLLING_GUIDE}
+${P2P_COMPUTE_POLLING_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`freeStartCompute\`.
 
@@ -734,7 +728,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P stop compute job',
       description: `Stops a running job (\`stopCompute\`). Requires auth.
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`stopCompute\`.
 
@@ -783,9 +777,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P compute status',
       description: `Queries job status (\`getComputeStatus\`). Requires auth.
 
-${P2P_COMPUTE_POLLING_GUIDE}
+${P2P_COMPUTE_POLLING_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **Returns:** \`ComputeJob\` or list of jobs.`,
       inputSchema: {
@@ -827,13 +821,13 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P get compute result (binary)',
       description: `Streams a compute result file and returns it as base64 (\`getComputeResult\`). Requires auth.
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`getComputeResult\`.
 
-**Parameters:** \`index\` is the result index from the job’s \`results\` array; \`offset\` resumes a partial download (bytes).
+**Parameters:** \`index\` is the result index from the job’s \`results\` array; \`offset\` resumes a partial download (bytes); \`maxBytes\` caps how much is collected into base64 (default ${DEFAULT_COMPUTE_RESULT_MAX_BYTES}) so a large blob can't flood context.
 
-**Returns:** \`{ dataBase64, byteLength }\`. Large outputs can be big JSON; consider \`offset\` for chunking in future tooling.`,
+**Returns:** \`{ dataBase64, byteLength, truncated, offset, nextOffset? }\`. When \`truncated\` is true, re-call with \`offset = nextOffset\` to fetch the next chunk. To reassemble a paged result, **base64-decode each page's \`dataBase64\` to bytes and concatenate the decoded bytes in \`offset\` order** — do NOT concatenate the base64 strings (each page is padded independently to its own byte length, so string concatenation yields corrupt output).`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -844,7 +838,15 @@ ${P2P_AUTH_SIGNING_GUIDE}
         offset: z
           .number()
           .optional()
-          .describe('Byte offset for resumable download. Default: 0.')
+          .describe('Byte offset for resumable download. Default: 0.'),
+        maxBytes: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            `Cap on bytes collected into base64 (default ${DEFAULT_COMPUTE_RESULT_MAX_BYTES}). Collection stops there and reports truncated:true with nextOffset.`
+          )
       }
     },
     async ({
@@ -855,7 +857,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
       completeSignature,
       jobId,
       index,
-      offset
+      offset,
+      maxBytes
     }) => {
       try {
         const auth = resolveAuth(authToken, completeSignature)
@@ -866,7 +869,8 @@ ${P2P_AUTH_SIGNING_GUIDE}
           jobId,
           index,
           offset ?? 0,
-          timeoutMs(timeout)
+          timeoutMs(timeout),
+          maxBytes ?? DEFAULT_COMPUTE_RESULT_MAX_BYTES
         )
         return commandResultPayload('getComputeResult', result)
       } catch (error) {
@@ -881,7 +885,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P download node logs',
       description: `Fetches operator logs from the node (\`getLogs\`). Requires auth.
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`getLogs\`.
 
@@ -929,9 +933,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P create persistent storage bucket',
       description: `Creates a bucket (\`persistentStorageCreateBucket\`). Requires auth.
 
-${P2P_PERSISTENT_STORAGE_PREREQUISITE}
+${P2P_PERSISTENT_STORAGE_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **Returns:** \`{ bucketId, owner, accessList }\` (shape per node / ocean.js).`,
       inputSchema: {
@@ -973,9 +977,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P list persistent storage buckets',
       description: `Lists buckets for an owner (\`persistentStorageGetBuckets\`). Requires auth.
 
-${P2P_PERSISTENT_STORAGE_PREREQUISITE}
+${P2P_PERSISTENT_STORAGE_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **Returns:** \`PersistentStorageBucket[]\`.`,
       inputSchema: {
@@ -1007,9 +1011,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P list persistent storage files',
       description: `Lists files in a bucket (\`persistentStorageListFiles\`). Requires auth.
 
-${P2P_PERSISTENT_STORAGE_PREREQUISITE}
+${P2P_PERSISTENT_STORAGE_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **Returns:** \`PersistentStorageFileEntry[]\` (bucketId, name, size, lastModified).`,
       inputSchema: {
@@ -1043,9 +1047,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
 
 **This is the intended way to obtain the \`fileObject\` for a persistent-storage dataset in a compute job:** call this with the \`bucketId\` + \`fileName\` (from \`listPersistentStorageFiles\` or what \`createPersistentStorageBucket\` + upload returned), then pass the returned descriptor as the dataset's \`fileObject\` in \`computeStart\`/\`freeComputeStart\` — with no \`documentId\`/\`serviceId\` on that dataset entry.
 
-${P2P_PERSISTENT_STORAGE_PREREQUISITE}
+${P2P_PERSISTENT_STORAGE_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **Returns:** \`PersistentStorageObject\` = \`{ type: "nodePersistentStorage", bucketId, fileName, ... }\`.`,
       inputSchema: {
@@ -1087,9 +1091,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P delete persistent storage file',
       description: `Deletes a file from a bucket (\`persistentStorageDeleteFile\`). Requires auth.
 
-${P2P_PERSISTENT_STORAGE_PREREQUISITE}
+${P2P_PERSISTENT_STORAGE_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **Returns:** \`PersistentStorageDeleteFileResponse\` (\`{ success: boolean }\` or node extension).`,
       inputSchema: {
@@ -1168,7 +1172,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P download asset file',
       description: `Streams a file over P2P (\`${PROTOCOL_COMMANDS.DOWNLOAD}\` / \`getDownloadUrl\`). Requires auth. Returns **base64** of file bytes plus length (large assets → large JSON).
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`${PROTOCOL_COMMANDS.DOWNLOAD}\`.`,
       inputSchema: {
@@ -1212,7 +1216,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P encrypt blob',
       description: `Encrypts data via the node (\`${PROTOCOL_COMMANDS.ENCRYPT}\`). Requires auth.
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`${PROTOCOL_COMMANDS.ENCRYPT}\`.
 
@@ -1422,7 +1426,7 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P compute streamable logs',
       description: `Fetches streamable job logs (\`${PROTOCOL_COMMANDS.COMPUTE_GET_STREAMABLE_LOGS}\`) and returns **base64** of the collected bytes (same framing as compute result streaming).
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`${PROTOCOL_COMMANDS.COMPUTE_GET_STREAMABLE_LOGS}\`.`,
       inputSchema: {
@@ -1454,9 +1458,9 @@ ${P2P_AUTH_SIGNING_GUIDE}
       title: 'P2P upload persistent storage file',
       description: `Uploads file bytes to a bucket (\`${PROTOCOL_COMMANDS.PERSISTENT_STORAGE_UPLOAD_FILE}\`). Requires auth. Body is sent as one LP chunk from **contentBase64**.
 
-${P2P_PERSISTENT_STORAGE_PREREQUISITE}
+${P2P_PERSISTENT_STORAGE_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,

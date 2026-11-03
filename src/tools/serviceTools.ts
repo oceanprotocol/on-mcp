@@ -13,7 +13,7 @@ import type {
 
 import { NodeClient } from '../clients/nodeClient.js'
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
-import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
+import { stringifyError, textContent, toCompactJson } from '../utils/format.js'
 import { decodeAuthTokenAddress } from '../utils/auth.js'
 import { commandResultPayload, toJsonFriendly } from './evmToolUtils.js'
 import {
@@ -27,18 +27,17 @@ import {
   nodeTargetSchema,
   p2pAuthFieldSchemas,
   parseNodeTarget,
-  P2P_AUTH_SIGNING_GUIDE,
+  P2P_AUTH_SIGNING_POINTER,
   resolveAuth,
   timeoutMs
 } from './p2pSchemas.js'
 import {
   SERVICE_AUTH_NOTE,
-  SERVICE_OVERVIEW_GUIDE,
-  SERVICE_PAYMENT_GUIDE,
-  SERVICE_POLLING_GUIDE,
-  SERVICE_RESTART_SEMANTICS_GUIDE,
-  SERVICE_STATUS_LABELS,
-  SERVICE_USERDATA_GUIDE,
+  SERVICE_OVERVIEW_POINTER,
+  SERVICE_PAYMENT_POINTER,
+  SERVICE_POLLING_POINTER,
+  SERVICE_RESTART_POINTER,
+  SERVICE_USERDATA_POINTER,
   serviceContainerSpecSchema,
   serviceIdSchema,
   serviceListFiltersSchema,
@@ -80,7 +79,7 @@ function errorPayload(message: string) {
 
 function structuredError(command: string, body: Record<string, unknown>) {
   return {
-    ...textContent(toPrettyJson({ command, ...(toJsonFriendly(body) as object) })),
+    ...textContent(toCompactJson({ command, ...(toJsonFriendly(body) as object) })),
     isError: true as const
   }
 }
@@ -354,7 +353,7 @@ Every env comes back with \`eligible\` and a human \`mismatchReason\`, so you ca
 
 ${SERVICE_ADVISORY_NOTE}
 
-${SERVICE_OVERVIEW_GUIDE}`,
+${SERVICE_OVERVIEW_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         chainId: z
@@ -553,7 +552,7 @@ Returns \`payment{escrowAddress, chainId, payee, token, amount, minLockSeconds}\
 
 For **extend**, price off the *stored* job: take \`resources\` and \`environment\` from \`serviceStatus\` (never re-derive them from env defaults) and pass \`duration = additionalDuration\` — the node bills the additional window alone.
 
-${SERVICE_PAYMENT_GUIDE}`,
+${SERVICE_PAYMENT_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         environment: z.string().describe('Env id from findServiceEnvironments.'),
@@ -685,17 +684,17 @@ ${SERVICE_PAYMENT_GUIDE}`,
 
 Runs the same best-effort **escrow gate** as \`computeStart\`: it estimates the cost, checks funds + the node authorization on-chain, and refuses to start when escrow cannot back the service (bypass with \`skipEscrowPreflight: true\`). This matters more here than for compute — a doomed service start still returns a \`serviceId\` and then dies asynchronously at \`Locking\`, which is far worse than a synchronous refusal.
 
-${SERVICE_OVERVIEW_GUIDE}
+${SERVICE_OVERVIEW_POINTER}
 
-${SERVICE_PAYMENT_GUIDE}
+${SERVICE_PAYMENT_POINTER}
 
-${SERVICE_POLLING_GUIDE}
+${SERVICE_POLLING_POINTER}
 
-${SERVICE_USERDATA_GUIDE}
+${SERVICE_USERDATA_POINTER}
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`${PROTOCOL_COMMANDS.SERVICE_START}\`. **Returns:** one \`ServiceJob\`, decorated with \`statusLabel\` and next-step guidance.`,
       inputSchema: {
@@ -863,11 +862,11 @@ Decorates each job with a human \`statusLabel\` (including \`45 Restarting\`), \
 
 \`userData\` is always stripped by the node, so you cannot read a value back — to change one you must re-supply the whole spec via a RESPEC restart.
 
-${SERVICE_POLLING_GUIDE}
+${SERVICE_POLLING_POINTER}
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -924,7 +923,6 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
         const decorated = (jobs ?? []).map(decorateServiceJob)
         return commandResultPayload('serviceStatus', {
           services: decorated,
-          statusLegend: SERVICE_STATUS_LABELS,
           ...(args.waitForRunning
             ? {
                 waitedSeconds: Math.round(waitedMs / 1000),
@@ -957,7 +955,7 @@ With no filters the node returns only services **currently holding a resource re
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -990,11 +988,10 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
           ownerScoped: false,
           count: services.length,
           services: services.map((job) => decorateServiceJob(job as never)),
-          statusLegend: SERVICE_STATUS_LABELS,
           note:
-            'These belong to ALL owners on this node, not just the caller — do not present them ' +
-            "as the user's own. Compare the `owner` field against the caller address, or use " +
-            'serviceStatus for an owner-scoped view.',
+            "These belong to ALL owners on this node, not just the caller — don't present them as " +
+            "the user's own; use serviceStatus for an owner-scoped view. Each job carries a " +
+            'statusLabel; the full status map is the ocean://docs/service-polling resource.',
           ...(services.length
             ? {
                 syncCursor: String(
@@ -1024,11 +1021,11 @@ Node-side failure modes worth surfacing to the user:
 - pricing can be **removed mid-service** → \`400\`;
 - a crashed prior extension that could not be auto-refunded → **\`409\`**.
 
-${SERVICE_PAYMENT_GUIDE}
+${SERVICE_PAYMENT_POINTER}
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1128,13 +1125,13 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
 
 Asynchronous like start: returns \`Restarting (45)\` immediately, then poll \`serviceStatus\`.
 
-${SERVICE_RESTART_SEMANTICS_GUIDE}
+${SERVICE_RESTART_POINTER}
 
-${SERVICE_POLLING_GUIDE}
+${SERVICE_POLLING_POINTER}
 
-${SERVICE_USERDATA_GUIDE}
+${SERVICE_USERDATA_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1226,7 +1223,7 @@ Since the reservation is kept, \`serviceRestart\` resumes on the **same** endpoi
 
 Unlike start/extend/restart, stop does **not** re-check the env access list — a consumer removed from an allow-list can still shut their own service down (deliberate: a revoked owner must be able to stop).
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1267,7 +1264,7 @@ Returns **decoded text** when the payload is small and valid UTF-8 (logs are tex
 
 ⚠️ **\`since\` matters.** With no bound the node streams the container's **entire history** — for a service that has been up for days that is enormous. This tool defaults to \`since: '${DEFAULT_LOG_SINCE}'\` and caps collection at \`maxBytes\` (default ${Math.round(DEFAULT_LOG_MAX_BYTES / 1024)} KiB), reporting \`truncated: true\` rather than returning a huge blob. Ask for full history explicitly (\`since: '0'\`) only when you actually need it.
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
