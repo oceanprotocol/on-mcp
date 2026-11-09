@@ -73,7 +73,7 @@
     "release-it": "^21.1.1",
     "sinon": "^19.0.2",
     "tsx": "^4.22.4",
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   },
   "release-it": {
     "hooks": {
