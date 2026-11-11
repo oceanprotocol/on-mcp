@@ -7,6 +7,7 @@ import { registerIncentivesTools } from './registerIncentivesTools.js'
 import { registerP2pProviderTools } from './p2pProviderTools.js'
 import { registerResourceTools } from './resourcesTools.js'
 import { registerServiceTools } from './serviceTools.js'
+import { registerNodeSubsidyTools } from './subsidy.js'
 
 type RegisterToolsParams = {
   server: McpServer
@@ -22,6 +23,7 @@ export function registerTools({
   registerP2pProviderTools({ server, nodeClient, evmRegistry })
   registerServiceTools({ server, nodeClient, evmRegistry })
   registerEvmContractTools({ server, evmRegistry })
+  registerNodeSubsidyTools({ server, nodeClient, evmRegistry })
   registerAssetTools({ server, evmRegistry })
   registerIncentivesTools({ server, incentivesClient })
   registerResourceTools({ server, evmRegistry, docsIndex })

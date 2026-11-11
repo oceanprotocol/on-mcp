@@ -16,10 +16,16 @@ const TEMPLATE: ServiceTemplatePublic = {
     { key: 'HF_TOKEN', validation: '^hf_', sensitive: true },
     { key: 'MAX_LEN' }
   ],
-  requiredResources: [
-    { id: 'cpu', min: 2 },
-    { id: 'ram', min: 8 },
-    { kind: 'discrete', type: 'gpu', min: 1 }
+  recommendedResources: [
+    { id: 'cpu', recommended: 2, unit: 'cores' },
+    { id: 'ram', recommended: 8, unit: 'GB' },
+    {
+      kind: 'discrete',
+      type: 'gpu',
+      recommended: 1,
+      unit: 'GB',
+      layouts: [{ gpuCount: 1 }]
+    }
   ]
 }
 
@@ -48,7 +54,7 @@ describe('templateToServiceStartArgs', () => {
     expect(projected.serviceStartArgs.exposedPorts).to.deep.equal([8000])
   })
 
-  it('projects only id-keyed requiredResources, at their minimums', () => {
+  it('projects only id-keyed recommendedResources, at their recommended amounts', () => {
     // The kind/type requirement has no id, so it cannot become a ComputeResourceRequest.
     expect(projected.serviceStartArgs.resources).to.deep.equal([
       { id: 'cpu', amount: 2 },

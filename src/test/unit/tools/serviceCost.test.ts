@@ -211,21 +211,21 @@ describe('buildServicePaymentInfo', () => {
 
 describe('availableFor / resourceShortfallReason', () => {
   it('computes total - inUse for an exact id', () => {
-    expect(availableFor(env(), { id: 'cpu', min: 1 })).to.equal(6)
-    expect(availableFor(env(), { id: 'nope', min: 1 })).to.equal(0)
+    expect(availableFor(env(), { id: 'cpu', amount: 1 })).to.equal(6)
+    expect(availableFor(env(), { id: 'nope', amount: 1 })).to.equal(0)
   })
 
   it('sums across a kind, optionally narrowed by type', () => {
-    expect(availableFor(env(), { kind: 'fungible', min: 1 })).to.equal(6 + 24)
-    expect(availableFor(env(), { kind: 'discrete', type: 'gpu', min: 1 })).to.equal(1)
-    expect(availableFor(env(), { kind: 'discrete', type: 'fpga', min: 1 })).to.equal(0)
+    expect(availableFor(env(), { kind: 'fungible', amount: 1 })).to.equal(6 + 24)
+    expect(availableFor(env(), { kind: 'discrete', type: 'gpu', amount: 1 })).to.equal(1)
+    expect(availableFor(env(), { kind: 'discrete', type: 'fpga', amount: 1 })).to.equal(0)
   })
 
   it('words a shortfall as "<what>: need N, have M", or null when it fits', () => {
     expect(
-      resourceShortfallReason(env(), [{ kind: 'discrete', type: 'gpu', min: 2 }])
+      resourceShortfallReason(env(), [{ kind: 'discrete', type: 'gpu', amount: 2 }])
     ).to.equal('discrete/gpu: need 2, have 1')
-    expect(resourceShortfallReason(env(), [{ id: 'cpu', min: 4 }])).to.equal(null)
+    expect(resourceShortfallReason(env(), [{ id: 'cpu', amount: 4 }])).to.equal(null)
   })
 })
 
@@ -246,7 +246,7 @@ describe('findServiceEnvironments', () => {
 
   it('also filters on requested capacity', () => {
     expect(
-      findServiceEnvironments([env()], [{ kind: 'discrete', type: 'gpu', min: 2 }])
+      findServiceEnvironments([env()], [{ kind: 'discrete', type: 'gpu', amount: 2 }])
     ).to.deep.equal([])
   })
 })

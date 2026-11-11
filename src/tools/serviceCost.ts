@@ -5,7 +5,6 @@ import type {
   ComputeResourceRequest,
   ServiceJob,
   ServiceTemplatePublic,
-  TemplateResourceRequirement,
   UserConfigurableEnvVar
 } from '@oceanprotocol/lib'
 
@@ -18,8 +17,19 @@ import { isServiceTerminal, serviceStatusLabel } from './serviceSchemas.js'
  * (see `estimateServiceCost`). No MCP or I/O dependencies, so all of this is unit-testable.
  */
 
-/** A resource requirement expressed either by exact id or by kind/type. */
-export type ResourceRequirement = TemplateResourceRequirement
+/**
+ * A capacity requirement the fit checks consume: an `amount` to satisfy, selected either by exact
+ * resource `id` (cpu/ram/disk) or by `kind`/`type` (e.g. a gpu). This is the on-mcp-internal shape
+ * (built from a user's `ComputeResourceRequest` or a template's `recommendedResources`); it is NOT
+ * the library's authoring-time `TemplateResourceRequirement` union, which keys amounts on
+ * `recommended` and splits gpu out under `kind: 'discrete'` / `type: 'gpu'`.
+ */
+export interface ResourceRequirement {
+  id?: string
+  kind?: string
+  type?: string
+  amount: number
+}
 
 /**
  * Free capacity for one requirement: `total - inUse` for an exact id, or summed across every
@@ -40,7 +50,7 @@ export function envSatisfiesRequirements(
   env: ComputeEnvironment,
   reqs?: ResourceRequirement[]
 ): boolean {
-  return (reqs ?? []).every((req) => availableFor(env, req) >= req.min)
+  return (reqs ?? []).every((req) => availableFor(env, req) >= req.amount)
 }
 
 /** Human-readable reason a resource set does not fit an env, or null when it fits. */
@@ -50,9 +60,9 @@ export function resourceShortfallReason(
 ): string | null {
   for (const req of reqs ?? []) {
     const have = availableFor(env, req)
-    if (have < req.min) {
+    if (have < req.amount) {
       const what = req.id ?? `${req.kind ?? 'resource'}${req.type ? `/${req.type}` : ''}`
-      return `${what}: need ${req.min}, have ${have}`
+      return `${what}: need ${req.amount}, have ${have}`
     }
   }
   return null
@@ -437,9 +447,9 @@ export function templateToServiceStartArgs(template: ServiceTemplatePublic): {
   operatorEnvVarKeys: string[]
   notes: string[]
 } {
-  const resources = (template.requiredResources ?? [])
-    .filter((r) => typeof r.id === 'string')
-    .map((r) => ({ id: r.id as string, amount: r.min }))
+  const resources = (template.recommendedResources ?? [])
+    .filter((r): r is Extract<typeof r, { id: string }> => 'id' in r)
+    .map((r) => ({ id: r.id, amount: r.recommended }))
 
   const serviceStartArgs: Record<string, unknown> = {
     image: template.image,

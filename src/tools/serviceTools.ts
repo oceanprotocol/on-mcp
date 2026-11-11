@@ -317,7 +317,7 @@ function describeServiceEnv(
           requestedResourceCheck: (opts.requirements ?? []).map((req) => ({
             requirement:
               req.id ?? `${req.kind ?? 'resource'}${req.type ? `/${req.type}` : ''}`,
-            need: req.min,
+            need: req.amount,
             free: availableFor(env, req)
           }))
         }
@@ -330,7 +330,7 @@ function toRequirements(
   resources: ComputeResourceRequest[] | undefined
 ): ResourceRequirement[] | undefined {
   if (!resources?.length) return undefined
-  return resources.map((r) => ({ id: r.id, min: r.amount }))
+  return resources.map((r) => ({ id: r.id, amount: r.amount }))
 }
 
 const SERVICE_ADVISORY_NOTE = `**\`features.services\` is an advertisement, not a guarantee.** It defaults to \`true\` node-side, and the node's start path never re-checks that \`serviceOnDemand\` was actually configured — so \`eligible: true\` means "advertised as service-capable, with pricing and capacity that fit". The node's \`${PROTOCOL_COMMANDS.SERVICE_START}\` is authoritative. An **empty template list proves nothing either way** (the node just reads a folder), so never report "no templates" as "services unavailable".`
