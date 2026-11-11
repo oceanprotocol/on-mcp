@@ -352,9 +352,11 @@ export function registerNodeSubsidyTools({
         '(read-only): `subsidyKind`, `version`, capability flags (isSubsidyView, ' +
         'isSubsidyLockProvider), `allowedJobTypes`, and `isNodeAllowed` for this node. Pass ' +
         '`token` for `availableBalance`, `payer` for `isUserAllowed`/`remainingSubsidy`, `jobType` ' +
-        'for `isJobTypeSubsidized`. `subsidyProviderFilter` is also returned: when FALSE the node ' +
-        'may additionally honour providers resolved live at claim time (the list is a floor); when ' +
-        'TRUE only the listed providers are accepted. Target the node with `nodeId` / `multiaddress`.',
+        'for `isJobTypeSubsidized`. This configured list is what the node uses by default (when a ' +
+        'job passes no `subsidyProviders`); a non-empty caller list instead REPLACES it. ' +
+        '`subsidyProviderFilter` is also returned and governs caller-supplied addresses: when TRUE ' +
+        'they must be within this list (others are rejected), when FALSE the node also honours ' +
+        'addresses outside it. Target the node with `nodeId` / `multiaddress`.',
       inputSchema: {
         ...nodeTargetSchema,
         chainId: z
@@ -481,8 +483,10 @@ export function registerNodeSubsidyTools({
         '`recommended` (addresses, ready to pass as `subsidyProviders`), `projectedTotalSubsidy`, ' +
         '`meetsSubsidyNeeded`, and per-candidate `candidates`. Amounts are in human-readable token ' +
         'units and the totals are approximate (decimal-string sums) — advisory only; the node and ' +
-        'escrow are authoritative at start. When `subsidyProviderFilter` is false the node may add ' +
-        'its own providers beyond this list.',
+        'escrow are authoritative at start. Passing a non-empty `subsidyProviders` list REPLACES the ' +
+        "node's configured set (only those are used, [] opts out, omitting it uses the node set); " +
+        '`subsidyProviderFilter` governs caller-supplied addresses — when true they must be within ' +
+        'the node set (others are rejected), when false the node also honours addresses outside it.',
       inputSchema: {
         ...nodeTargetSchema,
         chainId: z.number().int().positive().describe('Payment chain id.'),
@@ -579,34 +583,55 @@ export function registerNodeSubsidyTools({
               let bonus = '0'
               if (eligible) {
                 const isV2 = await safe(() => view.isSubsidyViewV2())
-                const quote = isV2
-                  ? await safe(() =>
-                      view.quoteSubsidyByMode(
-                        node,
-                        payerAddr,
-                        jobType,
-                        tokenAddr,
-                        amount,
-                        subsidyNeeded,
-                        SubsidyMode.PREFUNDED,
-                        tokenDecimals
-                      )
+                if (isV2) {
+                  // Quote BOTH delivery legs (they draw the same budget, so this is one call) and
+                  // keep the positive one: prefer PREFUNDED since it reduces the payer deposit, but
+                  // fall back to REIMBURSEMENT when prepaid is disabled — a REFUND_ONLY provider
+                  // quotes 0 for PREFUNDED yet still reimburses at claim, so it must stay
+                  // recommendable instead of being dropped as zero-coverage.
+                  const modes = await safe(() =>
+                    view.quoteSubsidyModes(
+                      node,
+                      payerAddr,
+                      jobType,
+                      tokenAddr,
+                      amount,
+                      subsidyNeeded,
+                      tokenDecimals
                     )
-                  : await safe(() =>
-                      view.quoteSubsidy(
-                        node,
-                        payerAddr,
-                        jobType,
-                        tokenAddr,
-                        amount,
-                        subsidyNeeded,
-                        tokenDecimals
-                      )
+                  )
+                  const prefunded = modes?.find((m) => m.mode === SubsidyMode.PREFUNDED)
+                  const reimburse = modes?.find(
+                    (m) => m.mode === SubsidyMode.REIMBURSEMENT
+                  )
+                  const chosen =
+                    prefunded && Number(prefunded.subsidy) > 0
+                      ? prefunded
+                      : reimburse && Number(reimburse.subsidy) > 0
+                        ? reimburse
+                        : (prefunded ?? reimburse ?? null)
+                  if (chosen) {
+                    subsidy = chosen.subsidy
+                    bonus = chosen.bonus
+                    mode = SubsidyMode[chosen.mode] ?? String(chosen.mode)
+                  }
+                } else {
+                  // v1 provider: claim-time REIMBURSEMENT is the only quote available.
+                  const quote = await safe(() =>
+                    view.quoteSubsidy(
+                      node,
+                      payerAddr,
+                      jobType,
+                      tokenAddr,
+                      amount,
+                      subsidyNeeded,
+                      tokenDecimals
                     )
-                if (quote) {
-                  subsidy = quote.subsidy
-                  bonus = quote.bonus
-                  if (isV2) mode = 'PREFUNDED'
+                  )
+                  if (quote) {
+                    subsidy = quote.subsidy
+                    bonus = quote.bonus
+                  }
                 }
               }
               return {
