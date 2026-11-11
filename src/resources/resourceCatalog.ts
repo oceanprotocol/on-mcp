@@ -163,7 +163,19 @@ export function getDocsResourceContent(
   docsIndex: DocIndex,
   uri: string
 ): ResourceContent | undefined {
-  const entry = docsIndex.find((docEntry) => docEntry.uri === uri)
+  // Index URIs are stored decoded (raw relative paths — see `deriveUri`), but the MCP
+  // ResourceTemplate (and most clients) hand us `uri.href`, which percent-encodes spaces and
+  // non-ASCII characters. Match the raw value first, then a decoded fallback, so an encoded
+  // request for a doc whose path contains a space or non-ASCII char still resolves.
+  let decoded = uri
+  try {
+    decoded = decodeURI(uri)
+  } catch {
+    decoded = uri
+  }
+  const entry = docsIndex.find(
+    (docEntry) => docEntry.uri === uri || docEntry.uri === decoded
+  )
   if (!entry) return undefined
 
   return {

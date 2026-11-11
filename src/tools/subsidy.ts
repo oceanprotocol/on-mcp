@@ -291,15 +291,17 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
     {
       title: 'Subsidy: budget buckets & remaining',
       description:
-        'Reads a subsidy provider budget for a payer + token (SubsidyView, read-only): the per-window ' +
-        'buckets (limit/used/remaining; check `unlimited` first) via subsidyBuckets and the overall ' +
-        'remainingSubsidy. Amounts are in human-readable token units. NOTE: `remaining` is additionally ' +
-        'gated to 0 by several independent gates — the per-token config (paused, token disabled, or ' +
-        'pctBps == 0) AND the payer allow-list — so it can legitimately be 0 while the per-window ' +
-        '`buckets` still show headroom. To diagnose, call subsidy_get_info with `token` (its ' +
-        '`tokenConfig` shows the paused/disabled/pctBps gates) and with `payer` (inspect the returned ' +
-        '`isUserAllowed` for the allow-list gate). `tokenConfig` alone does not reveal the ' +
-        'payer-specific allow-list result or identify every applicable gate.',
+        'Reads a subsidy provider budget for a payer + token (SubsidyView, read-only). Returns ' +
+        '`buckets` (a SubsidyBucketReport: top-level `paused`/`userAllowed`/`tokenEnabled` flags plus ' +
+        "a per-window `buckets[]` of limit/used/remaining — check each window's `unlimited` first) and " +
+        'the overall `remainingSubsidy`. Amounts are in human-readable token units. NOTE: `remaining` ' +
+        'is gated to 0 by several independent gates — the provider being `paused`, the token disabled ' +
+        'or `pctBps == 0` (per-token config), AND the payer allow-list — so it can legitimately be 0 ' +
+        'while the per-window `buckets` still show headroom. Diagnose directly from this result: ' +
+        '`buckets.paused` (pause), `buckets.tokenEnabled` (token disabled), `buckets.userAllowed` ' +
+        '(payer allow-list). For the `pctBps` gate call subsidy_get_info with `token` (its ' +
+        '`tokenConfig` shows only the disabled and pctBps gates, not pause). For the per-job grant a ' +
+        'provider would actually give, use subsidy_quote.',
       inputSchema: {
         ...contractInputSchema,
         payer: z.string().describe('Payer address.'),
