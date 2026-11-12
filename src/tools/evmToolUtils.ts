@@ -3,7 +3,7 @@ import { TransactionRequest, VoidSigner, getAddress } from 'ethers'
 import { z } from 'zod/v4'
 
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
-import { textContent, toPrettyJson } from '../utils/format.js'
+import { textContent, toCompactJson } from '../utils/format.js'
 
 export type EvmToolParams = {
   server: McpServer
@@ -41,13 +41,15 @@ export const unsignedTxInputSchema = {
     )
 }
 
+/**
+ * Single source of truth for the tool result envelope (the local copies in p2pProviderTools,
+ * resourcesTools and registerIncentivesTools now import this one). The echoed `command` string
+ * duplicated the tool name the client already knows, so it is dropped; the body is compact JSON.
+ * `command` stays in the signature (unused) so the ~100 call sites need no change.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function commandResultPayload(command: string, result: unknown) {
-  return textContent(
-    toPrettyJson({
-      command,
-      result: toJsonFriendly(result)
-    })
-  )
+  return textContent(toCompactJson({ result: toJsonFriendly(result) }))
 }
 
 export function getProviderOrThrow(evmRegistry: EvmProviderRegistry, chainId: number) {

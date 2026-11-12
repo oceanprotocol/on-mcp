@@ -13,7 +13,7 @@ import type {
 
 import { NodeClient } from '../clients/nodeClient.js'
 import type { EvmProviderRegistry } from '../evm/evmProviderRegistry.js'
-import { stringifyError, textContent, toPrettyJson } from '../utils/format.js'
+import { stringifyError, textContent, toCompactJson } from '../utils/format.js'
 import { decodeAuthTokenAddress } from '../utils/auth.js'
 import { commandResultPayload, toJsonFriendly } from './evmToolUtils.js'
 import {
@@ -27,18 +27,17 @@ import {
   nodeTargetSchema,
   p2pAuthFieldSchemas,
   parseNodeTarget,
-  P2P_AUTH_SIGNING_GUIDE,
+  P2P_AUTH_SIGNING_POINTER,
   resolveAuth,
   timeoutMs
 } from './p2pSchemas.js'
 import {
   SERVICE_AUTH_NOTE,
-  SERVICE_OVERVIEW_GUIDE,
-  SERVICE_PAYMENT_GUIDE,
-  SERVICE_POLLING_GUIDE,
-  SERVICE_RESTART_SEMANTICS_GUIDE,
-  SERVICE_STATUS_LABELS,
-  SERVICE_USERDATA_GUIDE,
+  SERVICE_OVERVIEW_POINTER,
+  SERVICE_PAYMENT_POINTER,
+  SERVICE_POLLING_POINTER,
+  SERVICE_RESTART_POINTER,
+  SERVICE_USERDATA_POINTER,
   serviceContainerSpecSchema,
   serviceIdSchema,
   serviceListFiltersSchema,
@@ -80,7 +79,7 @@ function errorPayload(message: string) {
 
 function structuredError(command: string, body: Record<string, unknown>) {
   return {
-    ...textContent(toPrettyJson({ command, ...(toJsonFriendly(body) as object) })),
+    ...textContent(toCompactJson({ command, ...(toJsonFriendly(body) as object) })),
     isError: true as const
   }
 }
@@ -186,6 +185,7 @@ export async function serviceEscrowGate(params: {
     completeSignature?: { consumerAddress: string }
     skipEscrowPreflight?: boolean
     parallelJobs?: number
+    subsidyProviders?: string[]
   }
   env: ComputeEnvironment
   chainId: number
@@ -229,13 +229,18 @@ export async function serviceEscrowGate(params: {
       payment: built.payment,
       maxJobDuration: params.durationSeconds,
       parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
+      // Forward the same tri-state selection sent to the node: a sponsored lock relaxes the
+      // payer-funded gate (a fully-sponsored user can start/extend with zero deposit).
+      subsidyProviders: args.subsidyProviders,
       caller: 'service_gate'
     })
   } catch {
     return undefined
   }
 
-  if (preflight.canStartThisJob) return undefined
+  // Proceed when the only blocker is payer funding a selected subsidy provider may cover
+  // (payerFundingUncertain) — the node/contract settles the payer portion authoritatively.
+  if (preflight.canStartThisJob || preflight.payerFundingUncertain) return undefined
   return structuredError(command, {
     error: 'escrow_preflight_failed',
     message:
@@ -312,7 +317,7 @@ function describeServiceEnv(
           requestedResourceCheck: (opts.requirements ?? []).map((req) => ({
             requirement:
               req.id ?? `${req.kind ?? 'resource'}${req.type ? `/${req.type}` : ''}`,
-            need: req.min,
+            need: req.amount,
             free: availableFor(env, req)
           }))
         }
@@ -325,7 +330,7 @@ function toRequirements(
   resources: ComputeResourceRequest[] | undefined
 ): ResourceRequirement[] | undefined {
   if (!resources?.length) return undefined
-  return resources.map((r) => ({ id: r.id, min: r.amount }))
+  return resources.map((r) => ({ id: r.id, amount: r.amount }))
 }
 
 const SERVICE_ADVISORY_NOTE = `**\`features.services\` is an advertisement, not a guarantee.** It defaults to \`true\` node-side, and the node's start path never re-checks that \`serviceOnDemand\` was actually configured — so \`eligible: true\` means "advertised as service-capable, with pricing and capacity that fit". The node's \`${PROTOCOL_COMMANDS.SERVICE_START}\` is authoritative. An **empty template list proves nothing either way** (the node just reads a folder), so never report "no templates" as "services unavailable".`
@@ -348,7 +353,7 @@ Every env comes back with \`eligible\` and a human \`mismatchReason\`, so you ca
 
 ${SERVICE_ADVISORY_NOTE}
 
-${SERVICE_OVERVIEW_GUIDE}`,
+${SERVICE_OVERVIEW_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         chainId: z
@@ -547,7 +552,7 @@ Returns \`payment{escrowAddress, chainId, payee, token, amount, minLockSeconds}\
 
 For **extend**, price off the *stored* job: take \`resources\` and \`environment\` from \`serviceStatus\` (never re-derive them from env defaults) and pass \`duration = additionalDuration\` — the node bills the additional window alone.
 
-${SERVICE_PAYMENT_GUIDE}`,
+${SERVICE_PAYMENT_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         environment: z.string().describe('Env id from findServiceEnvironments.'),
@@ -679,17 +684,17 @@ ${SERVICE_PAYMENT_GUIDE}`,
 
 Runs the same best-effort **escrow gate** as \`computeStart\`: it estimates the cost, checks funds + the node authorization on-chain, and refuses to start when escrow cannot back the service (bypass with \`skipEscrowPreflight: true\`). This matters more here than for compute — a doomed service start still returns a \`serviceId\` and then dies asynchronously at \`Locking\`, which is far worse than a synchronous refusal.
 
-${SERVICE_OVERVIEW_GUIDE}
+${SERVICE_OVERVIEW_POINTER}
 
-${SERVICE_PAYMENT_GUIDE}
+${SERVICE_PAYMENT_POINTER}
 
-${SERVICE_POLLING_GUIDE}
+${SERVICE_POLLING_POINTER}
 
-${SERVICE_USERDATA_GUIDE}
+${SERVICE_USERDATA_POINTER}
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}
+${P2P_AUTH_SIGNING_POINTER}
 
 **protocolCommand:** \`${PROTOCOL_COMMANDS.SERVICE_START}\`. **Returns:** one \`ServiceJob\`, decorated with \`statusLabel\` and next-step guidance.`,
       inputSchema: {
@@ -714,6 +719,14 @@ ${P2P_AUTH_SIGNING_GUIDE}
             'Seconds to keep the service up and pay for. Must be ≤ env.maxServiceDuration (advertised; rejected client-side when exceeded) and is also billed at a floor of env.minServiceDuration. A stricter serviceOnDemand.maxDurationSeconds node-config cap (default 86400s) may still apply and is not advertised. The resource reservation is held for this whole window even if you stop early.'
           ),
         payment: servicePaymentSchema,
+        subsidyProviders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
+              'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
+              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+          ),
         parallelJobs: z
           .number()
           .int()
@@ -812,7 +825,10 @@ ${P2P_AUTH_SIGNING_GUIDE}
           // minimums on top — see resourceMinimumWarnings.)
           ...(resources.length ? { resources } : {}),
           duration: args.duration,
-          payment: args.payment
+          payment: args.payment,
+          // Tri-state subsidy-provider selection (ocean-node #1485). Only set the field when the
+          // caller supplied it, so an omitted value keeps the node default (an explicit [] = none).
+          ...(args.subsidyProviders ? { subsidyProviders: args.subsidyProviders } : {})
         }
 
         const started = await nodeClient.serviceStart(node, auth, params, ms)
@@ -846,11 +862,11 @@ Decorates each job with a human \`statusLabel\` (including \`45 Restarting\`), \
 
 \`userData\` is always stripped by the node, so you cannot read a value back — to change one you must re-supply the whole spec via a RESPEC restart.
 
-${SERVICE_POLLING_GUIDE}
+${SERVICE_POLLING_POINTER}
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -907,7 +923,6 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
         const decorated = (jobs ?? []).map(decorateServiceJob)
         return commandResultPayload('serviceStatus', {
           services: decorated,
-          statusLegend: SERVICE_STATUS_LABELS,
           ...(args.waitForRunning
             ? {
                 waitedSeconds: Math.round(waitedMs / 1000),
@@ -940,7 +955,7 @@ With no filters the node returns only services **currently holding a resource re
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -973,11 +988,10 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
           ownerScoped: false,
           count: services.length,
           services: services.map((job) => decorateServiceJob(job as never)),
-          statusLegend: SERVICE_STATUS_LABELS,
           note:
-            'These belong to ALL owners on this node, not just the caller — do not present them ' +
-            "as the user's own. Compare the `owner` field against the caller address, or use " +
-            'serviceStatus for an owner-scoped view.',
+            "These belong to ALL owners on this node, not just the caller — don't present them as " +
+            "the user's own; use serviceStatus for an owner-scoped view. Each job carries a " +
+            'statusLabel; the full status map is the ocean://docs/service-polling resource.',
           ...(services.length
             ? {
                 syncCursor: String(
@@ -1007,11 +1021,11 @@ Node-side failure modes worth surfacing to the user:
 - pricing can be **removed mid-service** → \`400\`;
 - a crashed prior extension that could not be auto-refunded → **\`409\`**.
 
-${SERVICE_PAYMENT_GUIDE}
+${SERVICE_PAYMENT_POINTER}
 
 ${SERVICE_AUTH_NOTE}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1024,6 +1038,14 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
             'Extra seconds to add. This alone is what gets billed — not the new total duration.'
           ),
         payment: servicePaymentSchema,
+        subsidyProviders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
+              'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
+              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+          ),
         parallelJobs: z.number().int().positive().optional(),
         skipEscrowPreflight: z
           .boolean()
@@ -1080,7 +1102,8 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
           args.serviceId,
           args.additionalDuration,
           args.payment,
-          ms
+          ms,
+          args.subsidyProviders
         )
         return commandResultPayload('serviceExtend', {
           services: (result ?? []).map(decorateServiceJob),
@@ -1102,13 +1125,13 @@ ${P2P_AUTH_SIGNING_GUIDE}`,
 
 Asynchronous like start: returns \`Restarting (45)\` immediately, then poll \`serviceStatus\`.
 
-${SERVICE_RESTART_SEMANTICS_GUIDE}
+${SERVICE_RESTART_POINTER}
 
-${SERVICE_POLLING_GUIDE}
+${SERVICE_POLLING_POINTER}
 
-${SERVICE_USERDATA_GUIDE}
+${SERVICE_USERDATA_POINTER}
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1200,7 +1223,7 @@ Since the reservation is kept, \`serviceRestart\` resumes on the **same** endpoi
 
 Unlike start/extend/restart, stop does **not** re-check the env access list — a consumer removed from an allow-list can still shut their own service down (deliberate: a revoked owner must be able to stop).
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
@@ -1241,7 +1264,7 @@ Returns **decoded text** when the payload is small and valid UTF-8 (logs are tex
 
 ⚠️ **\`since\` matters.** With no bound the node streams the container's **entire history** — for a service that has been up for days that is enormous. This tool defaults to \`since: '${DEFAULT_LOG_SINCE}'\` and caps collection at \`maxBytes\` (default ${Math.round(DEFAULT_LOG_MAX_BYTES / 1024)} KiB), reporting \`truncated: true\` rather than returning a huge blob. Ask for full history explicitly (\`since: '0'\`) only when you actually need it.
 
-${P2P_AUTH_SIGNING_GUIDE}`,
+${P2P_AUTH_SIGNING_POINTER}`,
       inputSchema: {
         ...nodeTargetSchema,
         ...p2pAuthFieldSchemas,
