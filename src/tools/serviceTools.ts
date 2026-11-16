@@ -499,6 +499,8 @@ ${SERVICE_ADVISORY_NOTE}`,
 
 ⚠️ **Field-rename trap.** A template's \`command\`/\`entrypoint\` are **not** valid \`serviceStart\` arguments — there they are \`dockerCmd\`/\`dockerEntrypoint\`. Copied verbatim they are **silently dropped** and the container runs its image default. So each entry here comes with a paste-ready **\`serviceStartArgs\`** projection that is already renamed; use that rather than hand-copying from \`template\`.
 
+⚠️ **ComfyUI workflows.** A template that ships workflows needs \`COMFY_WORKFLOW_ID\` and \`COMFY_WORKFLOW\` in \`userData\` — without them ComfyUI crashes at startup and downloads no models, yet the service is still billed. They are not in \`userDataKeys\`; when the node sent the workflow graphs, \`serviceStartArgs.userData\` already carries both. Keep them and add your own keys to that same object.
+
 Two distinct env-var families, do not mix them:
 - **\`userDataKeys\`** (from \`userConfigurableEnvVars\`) — **yours** to fill in via \`serviceStart\`'s \`userData\`.
 - **\`operatorEnvVarKeys\`** (from \`envVarKeys\`) — the **operator's**; keys are exposed, values never are. Do **not** send these back.

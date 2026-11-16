@@ -1,7 +1,11 @@
+import { gunzipSync } from 'node:zlib'
 import { expect } from 'chai'
 import type { ServiceTemplatePublic } from '@oceanprotocol/lib'
 
-import { templateToServiceStartArgs } from '../../../tools/serviceCost.js'
+import {
+  buildWorkflowUserData,
+  templateToServiceStartArgs
+} from '../../../tools/serviceCost.js'
 
 const TEMPLATE: ServiceTemplatePublic = {
   id: 'vllm-qwen-0_5b',
@@ -122,5 +126,55 @@ describe('templateToServiceStartArgs', () => {
     expect(bare.serviceStartArgs).to.not.have.property('checksum')
     expect(bare.userDataKeys).to.deep.equal([])
     expect(bare.operatorEnvVarKeys).to.deep.equal([])
+  })
+})
+
+describe('templateToServiceStartArgs — workflow userData', () => {
+  const COMFY = {
+    id: 'video-studio',
+    image: 'yanwk/comfyui-boot',
+    exposedPorts: [8188]
+  }
+  const decode = (b64: string) =>
+    JSON.parse(gunzipSync(Buffer.from(b64, 'base64')).toString())
+
+  it('emits COMFY_WORKFLOW_ID and a gzip+base64 COMFY_WORKFLOW of every graph', () => {
+    const projected = templateToServiceStartArgs({
+      ...COMFY,
+      workflows: [
+        { id: 'allinone', graph: { a: 1 } },
+        { id: 't2v', graph: { b: 2 } }
+      ]
+    } as ServiceTemplatePublic)
+    const userData = projected.serviceStartArgs.userData as Record<string, string>
+    expect(userData.COMFY_WORKFLOW_ID).to.equal('allinone')
+    expect(decode(userData.COMFY_WORKFLOW)).to.deep.equal({
+      allinone: { a: 1 },
+      t2v: { b: 2 }
+    })
+    expect(projected.notes.join(' ')).to.contain('COMFY_WORKFLOW')
+  })
+
+  it('skips a workflow with no graph and opens the first one that has one', () => {
+    const userData = buildWorkflowUserData([
+      { id: 'empty' },
+      { id: 'real', graph: { c: 3 } }
+    ] as ServiceTemplatePublic['workflows'])
+    expect(userData?.COMFY_WORKFLOW_ID).to.equal('real')
+    expect(decode(userData!.COMFY_WORKFLOW)).to.deep.equal({ real: { c: 3 } })
+  })
+
+  it('emits no userData and warns when workflows carry no graph', () => {
+    const projected = templateToServiceStartArgs({
+      ...COMFY,
+      workflows: [{ id: 'empty' }]
+    } as ServiceTemplatePublic)
+    expect(projected.serviceStartArgs).to.not.have.property('userData')
+    expect(projected.notes.join(' ')).to.contain('do not start it')
+  })
+
+  it('adds nothing for a template without workflows', () => {
+    expect(buildWorkflowUserData(undefined)).to.equal(undefined)
+    expect(buildWorkflowUserData([])).to.equal(undefined)
   })
 })
