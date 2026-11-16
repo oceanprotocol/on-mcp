@@ -5,6 +5,7 @@ import {
   isUnsupportedInterfaceError,
   OneTimeSubsidyProvider,
   OPFSubsidyProvider,
+  ProviderInstance,
   SubsidyKind,
   SubsidyMode,
   SubsidyModeConfig,
@@ -12,6 +13,8 @@ import {
 } from '@oceanprotocol/lib'
 import type {
   ComputeEnvironment,
+  ComputeResourceRequest,
+  EstimateJobSubsidyParams,
   JobSubsidyEstimate,
   JobSubsidyScenario
 } from '@oceanprotocol/lib'
@@ -28,6 +31,9 @@ import {
 } from './evmToolUtils.js'
 import { nodeTargetSchema, parseNodeTarget, timeoutMs } from './p2pSchemas.js'
 import { resourceMinimumWarnings } from './serviceCost.js'
+
+/** The lib's provider façade type (`BaseProvider` is not exported by name). */
+export type SubsidyNodeProvider = NonNullable<EstimateJobSubsidyParams['provider']>
 
 type Params = {
   server: McpServer
@@ -596,15 +602,10 @@ export function registerNodeSubsidyTools({
     async (args) => {
       try {
         const node = parseNodeTarget(args.nodeId, args.multiaddress)
-        const ms = timeoutMs(args.timeout)
-        // The lib prices `resources` exactly as given, but the node raises each one to the env's
-        // advertised `min` before billing. Read the envs alongside so an under-minimum request is
-        // flagged with the same warning estimateServiceCost gives, instead of silently producing
-        // cost / escrowNeeded figures that are too low. Best-effort: a failed read never masks
-        // the estimate (which reads the envs itself and reports the real error).
-        const envsPromise = nodeClient
-          .getComputeEnvironments<ComputeEnvironment[]>(node, ms)
-          .catch((): ComputeEnvironment[] => [])
+        // Hand the lib a provider that remembers the environments it reads, so the minimum
+        // check below runs on the SAME env data the estimate was priced from (no second read
+        // that could fail on its own).
+        const captured = captureEnvironments()
         const estimate = await estimateJobSubsidy({
           signer: getVoidSigner(evmRegistry, args.chainId) as any,
           chainId: args.chainId,
@@ -630,14 +631,18 @@ export function registerNodeSubsidyTools({
           customSubsidyProviders: args.customSubsidyProviders,
           subsidyNeeded: args.subsidyNeeded,
           tokenDecimals: args.tokenDecimals,
-          signal: AbortSignal.timeout(ms)
+          provider: captured.provider,
+          signal: AbortSignal.timeout(timeoutMs(args.timeout))
         })
-        const env = (await envsPromise).find((e) => e.id === args.environment)
         return commandResultPayload(
           'subsidy_recommend',
           describeSubsidyEstimate(
             estimate,
-            env ? resourceMinimumWarnings(env, args.resources) : []
+            minimumResourceWarnings(
+              captured.environments(),
+              args.environment,
+              args.resources
+            )
           )
         )
       } catch (error) {
@@ -645,6 +650,53 @@ export function registerNodeSubsidyTools({
       }
     }
   )
+}
+
+/**
+ * A provider façade that behaves exactly like `base` but remembers the last
+ * `getComputeEnvironments` result, so a caller of `estimateJobSubsidy` can inspect the very env
+ * data the estimate used. Exported for unit tests.
+ */
+export function captureEnvironments(base: SubsidyNodeProvider = ProviderInstance): {
+  provider: SubsidyNodeProvider
+  environments: () => ComputeEnvironment[] | undefined
+} {
+  let seen: ComputeEnvironment[] | undefined
+  const provider = new Proxy(base, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target)
+      if (typeof value !== 'function') return value
+      if (prop !== 'getComputeEnvironments') return value.bind(target)
+      return async (...callArgs: unknown[]) => {
+        const envs = await value.apply(target, callArgs)
+        if (Array.isArray(envs)) seen = envs
+        return envs
+      }
+    }
+  })
+  return { provider, environments: () => seen }
+}
+
+/**
+ * The lib prices `resources` exactly as given, but the node raises each one to the env's
+ * advertised `min` before billing — so an under-minimum request yields cost / escrowNeeded
+ * figures that are too low. Returns the same warnings `estimateServiceCost` gives, or — when the
+ * env data is not available to check against — a warning saying the check did NOT run, so a
+ * possibly understated estimate is never returned silently. Exported for unit tests.
+ */
+export function minimumResourceWarnings(
+  envs: ComputeEnvironment[] | undefined,
+  environmentId: string,
+  resources: ComputeResourceRequest[]
+): string[] {
+  const env = envs?.find((e) => e.id === environmentId)
+  if (env) return resourceMinimumWarnings(env, resources)
+  return [
+    `RESOURCE MINIMUMS NOT CHECKED: the data for env "${environmentId}" was not available, so ` +
+      `amounts below its per-resource minimums could not be detected. The node bills at its ` +
+      `minimums — if any requested amount is below them, cost and escrow figures here are too ` +
+      `low. Compare \`resources\` against the env's advertised \`min\` values before relying on them.`
+  ]
 }
 
 /**

@@ -1,8 +1,17 @@
 import { expect } from 'chai'
 import { SubsidyKind, SubsidyMode } from '@oceanprotocol/lib'
-import type { JobSubsidyEstimate, JobSubsidyScenario } from '@oceanprotocol/lib'
+import type {
+  ComputeEnvironment,
+  JobSubsidyEstimate,
+  JobSubsidyScenario
+} from '@oceanprotocol/lib'
 
-import { describeSubsidyEstimate } from '../../../tools/subsidy.js'
+import {
+  captureEnvironments,
+  describeSubsidyEstimate,
+  minimumResourceWarnings,
+  type SubsidyNodeProvider
+} from '../../../tools/subsidy.js'
 
 const A = '0x00000000000000000000000000000000000000A1'
 const B = '0x00000000000000000000000000000000000000b2'
@@ -104,5 +113,77 @@ describe('describeSubsidyEstimate', () => {
     expect(droppedOut.dropped).to.equal('image_not_allowed')
     expect(droppedOut.gates.imageAllowed).to.equal(false)
     expect(droppedOut).to.not.have.property('quotes')
+  })
+})
+
+const ENV = {
+  id: 'env-1',
+  resources: [{ id: 'cpu', kind: 'fungible', total: 8, inUse: 0, max: 8, min: 2 }]
+} as unknown as ComputeEnvironment
+
+describe('minimumResourceWarnings', () => {
+  it('warns for an amount below the env minimum', () => {
+    const warnings = minimumResourceWarnings([ENV], 'env-1', [{ id: 'cpu', amount: 1 }])
+    expect(warnings).to.have.length(1)
+    expect(warnings[0]).to.contain('minimum of 2')
+  })
+
+  it('is silent when every amount meets the minimum', () => {
+    expect(
+      minimumResourceWarnings([ENV], 'env-1', [{ id: 'cpu', amount: 2 }])
+    ).to.deep.equal([])
+  })
+
+  it('says the check did not run when the env data is unavailable', () => {
+    for (const envs of [undefined, [], [ENV]]) {
+      const warnings = minimumResourceWarnings(envs, 'other-env', [
+        { id: 'cpu', amount: 1 }
+      ])
+      expect(warnings).to.have.length(1)
+      expect(warnings[0]).to.contain('RESOURCE MINIMUMS NOT CHECKED')
+    }
+  })
+})
+
+describe('captureEnvironments', () => {
+  function fakeBase(envs: unknown) {
+    return {
+      tag: 'base',
+      getComputeEnvironments(node: string) {
+        return Promise.resolve(node === 'n1' ? envs : undefined)
+      },
+      getNodeStatus(this: { tag: string }) {
+        return Promise.resolve({ address: this.tag })
+      }
+    } as unknown as SubsidyNodeProvider
+  }
+
+  it('remembers the envs the estimate read, passing them through unchanged', async () => {
+    const captured = captureEnvironments(fakeBase([ENV]))
+    expect(captured.environments()).to.equal(undefined)
+    const envs = await captured.provider.getComputeEnvironments('n1')
+    expect(envs).to.deep.equal([ENV])
+    expect(captured.environments()).to.deep.equal([ENV])
+  })
+
+  it('leaves other methods working with their original `this`', async () => {
+    const captured = captureEnvironments(fakeBase([ENV]))
+    const status = await captured.provider.getNodeStatus('n1')
+    expect(status.address).to.equal('base')
+  })
+
+  it('captures nothing when the read fails', async () => {
+    const base = {
+      getComputeEnvironments: () => Promise.reject(new Error('boom'))
+    } as unknown as SubsidyNodeProvider
+    const captured = captureEnvironments(base)
+    let threw = false
+    try {
+      await captured.provider.getComputeEnvironments('n1')
+    } catch {
+      threw = true
+    }
+    expect(threw).to.equal(true)
+    expect(captured.environments()).to.equal(undefined)
   })
 })
