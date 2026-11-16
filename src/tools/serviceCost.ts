@@ -1,3 +1,4 @@
+import { gzipSync } from 'node:zlib'
 import { parseUnits } from 'ethers'
 import type {
   ComputeEnvironment,
@@ -432,6 +433,32 @@ export function decorateServiceJob(job: ServiceJob): DecoratedServiceJob {
 }
 
 /**
+ * The `userData` a ComfyUI template needs to install its workflows — mirrors nodes-dashboard's
+ * `withWorkflowUserData`. The node inlines each workflow's graph in the template; the bootstrap
+ * reads `COMFY_WORKFLOW` (gzip+base64 of `{ "<id>": <graph>, ... }`) and `COMFY_WORKFLOW_ID` (the
+ * workflow to open), creates `custom_nodes/<id>` and downloads the models the graphs list.
+ * Without them ComfyUI crashes at startup (`/tmp/comfy/custom_nodes` is never created) and no
+ * weights download, yet the service still starts and is billed.
+ *
+ * Workflows with no graph are skipped. Returns `undefined` when none has one (a node that served
+ * metadata without bodies), so the literal string "undefined" is never installed as a workflow.
+ */
+export function buildWorkflowUserData(
+  workflows: ServiceTemplatePublic['workflows']
+): Record<string, string> | undefined {
+  const graphs: Record<string, unknown> = {}
+  for (const workflow of workflows ?? []) {
+    if (workflow.graph != null) graphs[workflow.id] = workflow.graph
+  }
+  const [firstId] = Object.keys(graphs)
+  if (firstId === undefined) return undefined
+  return {
+    COMFY_WORKFLOW_ID: firstId,
+    COMFY_WORKFLOW: gzipSync(JSON.stringify(graphs)).toString('base64')
+  }
+}
+
+/**
  * Paste-ready projection of a template into `serviceStart` arguments.
  *
  * This exists to neutralise a field-rename trap: a template's `command`/`entrypoint` are **not**
@@ -451,6 +478,8 @@ export function templateToServiceStartArgs(template: ServiceTemplatePublic): {
     .filter((r): r is Extract<typeof r, { id: string }> => 'id' in r)
     .map((r) => ({ id: r.id, amount: r.recommended }))
 
+  const workflowUserData = buildWorkflowUserData(template.workflows)
+
   const serviceStartArgs: Record<string, unknown> = {
     image: template.image,
     ...(template.tag ? { tag: template.tag } : {}),
@@ -463,13 +492,23 @@ export function templateToServiceStartArgs(template: ServiceTemplatePublic): {
     // ← the rename: template.command / .entrypoint
     ...(template.command ? { dockerCmd: template.command } : {}),
     ...(template.entrypoint ? { dockerEntrypoint: template.entrypoint } : {}),
-    ...(resources.length ? { resources } : {})
+    ...(resources.length ? { resources } : {}),
+    ...(workflowUserData ? { userData: workflowUserData } : {})
   }
 
   const notes: string[] = [
     "serviceStartArgs is already renamed to serviceStart's schema: template.command → dockerCmd, template.entrypoint → dockerEntrypoint. Passing `command`/`entrypoint` to serviceStart silently does nothing.",
     'Still to add yourself: `environment`, `duration`, `payment{chainId,token}`, and `userData` for the userDataKeys below.'
   ]
+  if (workflowUserData) {
+    notes.push(
+      'serviceStartArgs.userData already holds COMFY_WORKFLOW_ID and COMFY_WORKFLOW (the template workflows, gzip+base64). Keep both and ADD the userDataKeys below to that same object. Without them the bootstrap never installs the workflows or downloads the models, and ComfyUI crashes at startup while the service is still billed.'
+    )
+  } else if (template.workflows?.length) {
+    notes.push(
+      'This template lists workflows but the node sent none with a graph, so COMFY_WORKFLOW_ID / COMFY_WORKFLOW cannot be built. A ComfyUI template started without them crashes at startup while still billed — do not start it.'
+    )
+  }
   const lowPorts = (template.exposedPorts ?? []).filter((p) => p < 1024)
   if (lowPorts.length) {
     notes.push(
