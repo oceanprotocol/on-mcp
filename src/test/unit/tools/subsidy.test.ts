@@ -92,6 +92,11 @@ describe('describeSubsidyEstimate', () => {
     expect(out.warnings).to.deep.equal(['Advisory estimate'])
   })
 
+  it('lists on-mcp warnings (e.g. under-minimum resources) ahead of the lib ones', () => {
+    const out = describeSubsidyEstimate(estimate(), ['cpu below env minimum'])
+    expect(out.warnings).to.deep.equal(['cpu below env minimum', 'Advisory estimate'])
+  })
+
   it('keeps quotes for eligible providers and the drop reason for the rest', () => {
     const [kept, droppedOut] = describeSubsidyEstimate(estimate()).providers
     expect(kept.quotes?.prefunded.subsidy).to.equal('4')

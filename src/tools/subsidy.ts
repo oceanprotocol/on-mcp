@@ -10,7 +10,11 @@ import {
   SubsidyModeConfig,
   SubsidyView
 } from '@oceanprotocol/lib'
-import type { JobSubsidyEstimate, JobSubsidyScenario } from '@oceanprotocol/lib'
+import type {
+  ComputeEnvironment,
+  JobSubsidyEstimate,
+  JobSubsidyScenario
+} from '@oceanprotocol/lib'
 import { getAddress } from 'ethers'
 import { z } from 'zod/v4'
 
@@ -23,6 +27,7 @@ import {
   getVoidSigner
 } from './evmToolUtils.js'
 import { nodeTargetSchema, parseNodeTarget, timeoutMs } from './p2pSchemas.js'
+import { resourceMinimumWarnings } from './serviceCost.js'
 
 type Params = {
   server: McpServer
@@ -508,7 +513,10 @@ export function registerNodeSubsidyTools({
           .min(1)
           .describe(
             'Resources to price — the SAME list you will send at start (no defaults are filled in). ' +
-              'An id the env does not price counts as 0 and is listed in `unpricedResourceIds`.'
+              'An id the env does not price counts as 0 and is listed in `unpricedResourceIds`. ' +
+              'Amounts below an env per-resource `min` are priced AS GIVEN and flagged in ' +
+              '`warnings` — the node bills at its minimum, so cost and escrow figures are then ' +
+              'too low; re-run with the minimum.'
           ),
         duration: z
           .number()
@@ -587,11 +595,21 @@ export function registerNodeSubsidyTools({
     },
     async (args) => {
       try {
+        const node = parseNodeTarget(args.nodeId, args.multiaddress)
+        const ms = timeoutMs(args.timeout)
+        // The lib prices `resources` exactly as given, but the node raises each one to the env's
+        // advertised `min` before billing. Read the envs alongside so an under-minimum request is
+        // flagged with the same warning estimateServiceCost gives, instead of silently producing
+        // cost / escrowNeeded figures that are too low. Best-effort: a failed read never masks
+        // the estimate (which reads the envs itself and reports the real error).
+        const envsPromise = nodeClient
+          .getComputeEnvironments<ComputeEnvironment[]>(node, ms)
+          .catch((): ComputeEnvironment[] => [])
         const estimate = await estimateJobSubsidy({
           signer: getVoidSigner(evmRegistry, args.chainId) as any,
           chainId: args.chainId,
           payer: args.payer,
-          node: parseNodeTarget(args.nodeId, args.multiaddress),
+          node,
           token: args.token,
           environmentId: args.environment,
           resources: args.resources,
@@ -612,11 +630,15 @@ export function registerNodeSubsidyTools({
           customSubsidyProviders: args.customSubsidyProviders,
           subsidyNeeded: args.subsidyNeeded,
           tokenDecimals: args.tokenDecimals,
-          signal: AbortSignal.timeout(timeoutMs(args.timeout))
+          signal: AbortSignal.timeout(ms)
         })
+        const env = (await envsPromise).find((e) => e.id === args.environment)
         return commandResultPayload(
           'subsidy_recommend',
-          describeSubsidyEstimate(estimate)
+          describeSubsidyEstimate(
+            estimate,
+            env ? resourceMinimumWarnings(env, args.resources) : []
+          )
         )
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
@@ -628,15 +650,20 @@ export function registerNodeSubsidyTools({
 /**
  * `estimateJobSubsidy` result as the tool returns it: enum values replaced by their names, and
  * each provider flattened to one compact row (ineligible candidates carry no quotes — they are
- * all zero). Exported for unit tests.
+ * all zero). `extraWarnings` (on-mcp's own, e.g. under-minimum resources) are listed first.
+ * Exported for unit tests.
  */
-export function describeSubsidyEstimate(estimate: JobSubsidyEstimate) {
+export function describeSubsidyEstimate(
+  estimate: JobSubsidyEstimate,
+  extraWarnings: string[] = []
+) {
   const scenario = (s: JobSubsidyScenario) => ({
     ...s,
     mode: SubsidyMode[s.mode] ?? String(s.mode)
   })
   return {
     ...estimate,
+    warnings: [...extraWarnings, ...estimate.warnings],
     providers: estimate.providers.map((p) => ({
       address: p.address,
       subsidyKind:

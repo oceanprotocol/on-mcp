@@ -243,7 +243,7 @@ export async function serviceEscrowGate(params: {
     // selected provider whose allowlist does not cover this image — or any allowlisted provider
     // when the entrypoint/cmd is overridden — is silently dropped by the node, so it cannot
     // sponsor the lock and must not relax the payer-funded gate below.
-    let subsidyProviders = args.subsidyProviders
+    let { subsidyProviders } = args
     if (params.container && subsidyProviders?.length) {
       const gated = filterSubsidyByAllowedImages(
         subsidyProviders,
