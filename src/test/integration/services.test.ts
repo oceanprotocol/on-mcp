@@ -1,5 +1,5 @@
 import { expect } from 'chai'
-import { ProviderInstance } from '@oceanprotocol/lib'
+import { estimateServiceCost, ProviderInstance, toRawAmount } from '@oceanprotocol/lib'
 import type { ComputeEnvironment, NodeStatus, ServiceJob } from '@oceanprotocol/lib'
 
 import { NodeClient } from '../../clients/nodeClient.js'
@@ -7,9 +7,7 @@ import { parseNodeTarget } from '../../tools/p2pSchemas.js'
 import {
   buildServicePaymentInfo,
   decorateServiceJob,
-  estimateServiceCost,
-  resolveServiceResources,
-  toRawAmount
+  resolveServiceResources
 } from '../../tools/serviceCost.js'
 import { isServiceTerminal, serviceStatusLabel } from '../../tools/serviceSchemas.js'
 

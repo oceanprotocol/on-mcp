@@ -672,6 +672,87 @@ describe('serviceEscrowGate', () => {
     expect(gate).to.equal(undefined)
   })
 
+  describe('subsidy image gate', () => {
+    const SPONSOR = '0x00000000000000000000000000000000000000A1'
+    const OTHER = '0x00000000000000000000000000000000000000b2'
+
+    function clientWithAllowlist() {
+      const nodeClient = new NodeClient()
+      stub(
+        nodeClient,
+        'status',
+        resolves({
+          escrowAddress: { '8453': ESCROW },
+          // Lower-cased key on purpose: the lib checksum-normalizes allowlist keys.
+          subsidyProviderAllowedImages: { [SPONSOR.toLowerCase()]: ['nginx:*'] }
+        })
+      )
+      return nodeClient
+    }
+
+    async function forwardedProviders(
+      container: Parameters<typeof serviceEscrowGate>[0]['container'],
+      nodeClient = clientWithAllowlist()
+    ) {
+      let forwarded: string[] | undefined
+      const gate = await serviceEscrowGate({
+        ...GATE_ARGS,
+        nodeClient,
+        evmRegistry: fakeEvmRegistry,
+        args: { authToken: fakeAuthToken(), subsidyProviders: [SPONSOR, OTHER] },
+        container,
+        runPreflight: (p) => {
+          forwarded = p.subsidyProviders
+          return Promise.resolve(preflightResult(false))
+        }
+      })
+      return { forwarded, gate }
+    }
+
+    it('keeps a provider whose allowlist matches the image', async () => {
+      const { forwarded, gate } = await forwardedProviders({
+        image: 'nginx',
+        tag: '1.27'
+      })
+      expect(forwarded).to.deep.equal([SPONSOR, OTHER])
+      const body = JSON.parse(gate!.content[0].text)
+      expect(body).to.not.have.property('subsidyProvidersDroppedByImageGate')
+    })
+
+    it('drops an allowlisted provider for a non-matching image, keeps unlisted ones', async () => {
+      const { forwarded, gate } = await forwardedProviders({ image: 'redis', tag: '7' })
+      expect(forwarded).to.deep.equal([OTHER])
+      const body = JSON.parse(gate!.content[0].text)
+      expect(body.subsidyProvidersDroppedByImageGate).to.deep.equal([SPONSOR])
+      expect(body.imageGateNote).to.contain('subsidy_recommend')
+    })
+
+    it('drops an allowlisted provider when the entrypoint or cmd is overridden', async () => {
+      const cmd = await forwardedProviders({ image: 'nginx', dockerCmd: ['sh'] })
+      expect(cmd.forwarded).to.deep.equal([OTHER])
+      const entry = await forwardedProviders({ image: 'nginx', dockerEntrypoint: ['sh'] })
+      expect(entry.forwarded).to.deep.equal([OTHER])
+    })
+
+    it('drops an allowlisted provider for a dockerfile build', async () => {
+      const { forwarded } = await forwardedProviders({
+        image: 'nginx',
+        dockerfile: 'FROM nginx'
+      })
+      expect(forwarded).to.deep.equal([OTHER])
+    })
+
+    it('forwards the selection untouched when the node advertises no allowlist', async () => {
+      const { forwarded } = await forwardedProviders({ image: 'redis' }, stubbedClient())
+      expect(forwarded).to.deep.equal([SPONSOR, OTHER])
+    })
+
+    it('forwards the selection untouched when no container is given (extend)', async () => {
+      const { forwarded } = await forwardedProviders(undefined)
+      expect(forwarded).to.deep.equal([SPONSOR, OTHER])
+    })
+  })
+
   it('is bypassed by skipEscrowPreflight', async () => {
     let called = false
     const gate = await serviceEscrowGate({

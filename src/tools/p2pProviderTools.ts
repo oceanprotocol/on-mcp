@@ -608,7 +608,8 @@ ${P2P_AUTH_SIGNING_POINTER}
           .describe(
             'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
               'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
-              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+              '(subject to the node policy). Get the list from subsidy_recommend (pass a scenario `selected` ' +
+              'verbatim — it applies the node image gate and quotes each provider).'
           ),
         parallelJobs: z
           .number()

@@ -1,4 +1,9 @@
 import { expect } from 'chai'
+import {
+  estimateServiceCost,
+  serviceMinLockSeconds,
+  toRawAmount
+} from '@oceanprotocol/lib'
 import type { ComputeEnvironment, ServiceJob } from '@oceanprotocol/lib'
 
 import {
@@ -6,15 +11,12 @@ import {
   buildServicePaymentInfo,
   decorateServiceJob,
   describeUserDataKeys,
-  estimateServiceCost,
   findServiceEnvironments,
   parseUserData,
   resolveServiceResources,
   resourceMinimumWarnings,
-  resourceShortfallReason,
-  toRawAmount
+  resourceShortfallReason
 } from '../../../tools/serviceCost.js'
-import { serviceMinLockSeconds } from '../../../tools/escrowPreflight.js'
 
 const TOKEN_CHECKSUMMED = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const PAYEE = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'
