@@ -1,13 +1,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
-  EscrowContract,
+  estimateJobSubsidy,
+  isNonEmpty,
   isUnsupportedInterfaceError,
   OneTimeSubsidyProvider,
   OPFSubsidyProvider,
+  ProviderInstance,
   SubsidyKind,
   SubsidyMode,
   SubsidyModeConfig,
   SubsidyView
+} from '@oceanprotocol/lib'
+import type {
+  ComputeEnvironment,
+  ComputeResourceRequest,
+  EstimateJobSubsidyParams,
+  JobSubsidyEstimate,
+  JobSubsidyScenario
 } from '@oceanprotocol/lib'
 import { getAddress } from 'ethers'
 import { z } from 'zod/v4'
@@ -21,6 +30,10 @@ import {
   getVoidSigner
 } from './evmToolUtils.js'
 import { nodeTargetSchema, parseNodeTarget, timeoutMs } from './p2pSchemas.js'
+import { resourceMinimumWarnings } from './serviceCost.js'
+
+/** The lib's provider façade type (`BaseProvider` is not exported by name). */
+export type SubsidyNodeProvider = NonNullable<EstimateJobSubsidyParams['provider']>
 
 type Params = {
   server: McpServer
@@ -40,12 +53,7 @@ type NodeSubsidyStatus = {
   /** When true, the node ONLY honours providers in `subsidyProviders`; when false it may also
    * resolve others live at claim time, so the list is a floor, not a ceiling. */
   subsidyProviderFilter?: boolean
-  /** Per-chain escrow address — used to read the authoritative `maxSponsorsPerLock` cap. */
-  escrowAddress?: Record<string, string>
 }
-
-/** Default per-lock sponsor cap the v2 escrow enforces, used when the escrow can't be read. */
-const DEFAULT_MAX_SPONSORS_PER_LOCK = 10
 
 function getSubsidyView(
   evmRegistry: EvmProviderRegistry,
@@ -335,7 +343,8 @@ export function registerSubsidyTools({ server, evmRegistry }: Params): void {
  * `startCompute`/`startService`), then enrich/quote each via `SubsidyView`. They bridge the gap the
  * address-keyed reads above leave: those need you to already know a provider address. Use these to
  * discover what a node supports and to pick the `subsidyProviders` list for computeStart /
- * serviceStart / serviceExtend.
+ * serviceStart / serviceExtend. `subsidy_recommend` is a thin wrapper over ocean.js
+ * `estimateJobSubsidy` — cost, image gate, quoting and selection all live in the library.
  */
 export function registerNodeSubsidyTools({
   server,
@@ -472,40 +481,115 @@ export function registerNodeSubsidyTools({
   server.registerTool(
     'subsidy_recommend',
     {
-      title: 'Subsidy: recommend providers for a job',
+      title: 'Subsidy: estimate subsidy & escrow for a job',
       description:
-        'Recommends the ordered `subsidyProviders` list to pass to computeStart / serviceStart / ' +
-        "serviceExtend for a specific job. Resolves candidates from the node's `status` " +
-        '(`subsidyProviders[chainId]`), quotes each via SubsidyView (PREFUNDED/lock-time when the ' +
-        'provider implements ISubsidyViewV2, else the v1 claim-time quote), drops providers failing ' +
-        'the node/user/jobType gates or quoting 0, then ranks by coverage and greedily fills up to ' +
-        '`subsidyNeeded`, capped at the escrow `maxSponsorsPerLock` (10 at v2). Returns ' +
-        '`recommended` (addresses, ready to pass as `subsidyProviders`), `projectedTotalSubsidy`, ' +
-        '`meetsSubsidyNeeded`, and per-candidate `candidates`. Amounts are in human-readable token ' +
-        'units and the totals are approximate (decimal-string sums) — advisory only; the node and ' +
-        'escrow are authoritative at start. Passing a non-empty `subsidyProviders` list REPLACES the ' +
-        "node's configured set (only those are used, [] opts out, omitting it uses the node set); " +
-        '`subsidyProviderFilter` governs caller-supplied addresses — when true they must be within ' +
-        'the node set (others are rejected), when false the node also honours addresses outside it.',
+        'Read-only subsidy pre-flight for one job (ocean.js `estimateJobSubsidy`): how much subsidy ' +
+        'it gets per provider and per delivery mode, which `subsidyProviders` list to pass to ' +
+        'computeStart / serviceStart / serviceExtend, and how much the payer must hold in escrow. ' +
+        'Derives the job cost from the env fee schedule (same arithmetic as estimateServiceCost), ' +
+        "takes candidates from the node's `status.subsidyProviders[chainId]` plus " +
+        '`customSubsidyProviders`, applies the node image gate (`subsidyProviderAllowedImages`: a ' +
+        'provider with an allowlist only sponsors a matching image run WITHOUT a custom ' +
+        'entrypoint/cmd), checks the node/user/jobType gates and quotes each provider. Returns ' +
+        '`scenarios.reimbursement` (subsidy refunded at claim — the payer still fronts the full ' +
+        'cost) and `scenarios.prefunded` (lock-time sponsorship — the deposit shrinks by the ' +
+        'subsidy; needs an escrow with lock-subsidy support), each with `selected`, ' +
+        '`projectedTotalSubsidy`, `escrowNeeded`, `escrowAvailable`, `escrowShortfall`; plus ' +
+        '`providers[]` with gate results, both quotes and a `dropped` reason for every candidate ' +
+        "left out. Pass a scenario's `selected` VERBATIM as `subsidyProviders` — order is the " +
+        'drawdown order, and an empty list means pass `[]` (omitting the argument makes the node ' +
+        'fall back to its own set). Amounts are human-readable token units except `costBaseUnits` ' +
+        '(raw; the `amount` escrow_preflight expects). Advisory only: the node recomputes cost ' +
+        "and the contracts settle at start. `escrowAddress` is the node's own claim — unverified.",
       inputSchema: {
         ...nodeTargetSchema,
         chainId: z.number().int().positive().describe('Payment chain id.'),
-        payer: z.string().describe('Payer address.'),
-        token: z.string().describe('Payment token address.'),
+        payer: z.string().describe('Payer (consumer) address.'),
+        token: z
+          .string()
+          .describe(
+            "Payment token address. The result's `token` echoes the env's own spelling — send that one at start."
+          ),
         jobType: z
           .union([z.number().int().nonnegative(), z.string()])
-          .describe('Job type (e.g. 1=COMPUTE, 2=SERVICE as ocean-node defines them).'),
-        amount: z.string().describe('Gross job cost (human-readable token units).'),
-        subsidyNeeded: z
-          .string()
-          .describe('Subsidy amount to cover (human-readable token units).'),
-        maxProviders: z
+          .describe("Job type: 1 or 'compute', 2 or 'service' (ocean-node numbering)."),
+        environment: z.string().describe('Compute environment id on the node.'),
+        resources: z
+          .array(z.object({ id: z.string(), amount: z.number().nonnegative() }))
+          .min(1)
+          .describe(
+            'Resources to price — the SAME list you will send at start (no defaults are filled in). ' +
+              'An id the env does not price counts as 0 and is listed in `unpricedResourceIds`. ' +
+              'Amounts below an env per-resource `min` are priced AS GIVEN and flagged in ' +
+              '`warnings` — the node bills at its minimum, so cost and escrow figures are then ' +
+              'too low; re-run with the minimum.'
+          ),
+        duration: z
           .number()
-          .int()
           .positive()
+          .describe(
+            'Job duration in seconds (for serviceExtend: the additional duration). Billed at the ' +
+              "env's minimum-duration floor if lower."
+          ),
+        image: z
+          .string()
           .optional()
           .describe(
-            'Optional cap on how many providers to recommend (never exceeds the escrow cap).'
+            'Container image name the job runs (service `image`, or the compute algorithm ' +
+              'container image). Needed by the image gate: without it, providers that restrict ' +
+              'images are reported as `image_not_allowed`.'
+          ),
+        tag: z.string().optional().describe('Image tag (default `latest`).'),
+        checksum: z
+          .string()
+          .optional()
+          .describe('Image digest ("sha256:…"). Wins over `tag` when both are set.'),
+        dockerfile: z
+          .string()
+          .optional()
+          .describe(
+            'Inline Dockerfile, if the image is built from one. A user-built image never matches ' +
+              'an allowlist. Any non-empty value is enough here.'
+          ),
+        dockerEntrypoint: z
+          .array(z.string())
+          .optional()
+          .describe(
+            'Service ENTRYPOINT override, exactly as you will pass it to serviceStart.'
+          ),
+        dockerCmd: z
+          .array(z.string())
+          .optional()
+          .describe('Service CMD override, exactly as you will pass it to serviceStart.'),
+        hasCustomEntrypoint: z
+          .boolean()
+          .optional()
+          .describe(
+            'Set true when the workload is not the plain trusted image. Services: derived for you ' +
+              'from `dockerEntrypoint`/`dockerCmd`. COMPUTE: you MUST set it true when the ' +
+              'algorithm container overrides the entrypoint OR the algorithm is user-supplied ' +
+              '(rawcode, a fileObject, or a documentId/serviceId DID) — the node then refuses ' +
+              'image-restricted subsidies, and leaving it false overstates the subsidy.'
+          ),
+        queueMaxWaitTime: z
+          .number()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Compute only: the env's queue max wait in seconds. Added to `minLockSeconds`, never to the cost."
+          ),
+        customSubsidyProviders: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Extra provider addresses to consider on top of the node's advertised set. With " +
+              '`subsidyProviderFilter` on, ones outside that set are dropped as `outside_node_set`.'
+          ),
+        subsidyNeeded: z
+          .string()
+          .optional()
+          .describe(
+            'Subsidy to cover, human-readable token units. Default: the full job cost.'
           ),
         tokenDecimals: z
           .number()
@@ -515,177 +599,139 @@ export function registerNodeSubsidyTools({
           .describe('Optional token decimals override.')
       }
     },
-    async ({
-      nodeId,
-      multiaddress,
-      timeout,
-      chainId,
-      payer,
-      token,
-      jobType,
-      amount,
-      subsidyNeeded,
-      maxProviders,
-      tokenDecimals
-    }) => {
+    async (args) => {
       try {
-        const target = parseNodeTarget(nodeId, multiaddress)
-        const status = await nodeClient.status<NodeSubsidyStatus>(
-          target,
-          timeoutMs(timeout)
-        )
-        const nodeAddress = status.address
-        if (!nodeAddress) {
-          throw new Error(
-            'Node status did not include an `address`; cannot quote subsidies.'
-          )
-        }
-        const providers = status.subsidyProviders?.[String(chainId)] ?? []
-        const subsidyProviderFilter = status.subsidyProviderFilter ?? false
-
-        // Authoritative per-lock sponsor cap: read it from the node's escrow when available.
-        let cap = DEFAULT_MAX_SPONSORS_PER_LOCK
-        const escrowAddress = status.escrowAddress?.[String(chainId)]
-        if (escrowAddress) {
-          const escrowSigner = getVoidSigner(evmRegistry, chainId) as any
-          const escrow = new EscrowContract(
-            getAddress(escrowAddress),
-            escrowSigner,
-            chainId
-          )
-          const onChainCap = await safe(() => escrow.maxSponsorsPerLock())
-          if (typeof onChainCap === 'number' && onChainCap > 0) cap = onChainCap
-        }
-        if (maxProviders && maxProviders < cap) cap = maxProviders
-
-        const node = getAddress(nodeAddress)
-        const payerAddr = getAddress(payer)
-        const tokenAddr = getAddress(token)
-        const candidates = await Promise.all(
-          providers.map(async (addr) => {
-            try {
-              const view = getSubsidyView(evmRegistry, chainId, addr)
-              const [isNodeAllowed, isUserAllowed, isJobTypeSubsidized] =
-                await Promise.all([
-                  safe(() => view.isNodeAllowed(node)),
-                  safe(() => view.isUserAllowed(payerAddr)),
-                  safe(() => view.isJobTypeSubsidized(jobType))
-                ])
-              // A null gate = the provider doesn't expose that check; treat only an explicit
-              // false as disqualifying.
-              const eligible =
-                isNodeAllowed !== false &&
-                isUserAllowed !== false &&
-                isJobTypeSubsidized !== false
-              const kind = await safe(() => view.subsidyKind())
-              let mode = 'REIMBURSEMENT'
-              let subsidy = '0'
-              let bonus = '0'
-              if (eligible) {
-                const isV2 = await safe(() => view.isSubsidyViewV2())
-                if (isV2) {
-                  // Quote BOTH delivery legs (they draw the same budget, so this is one call) and
-                  // keep the positive one: prefer PREFUNDED since it reduces the payer deposit, but
-                  // fall back to REIMBURSEMENT when prepaid is disabled — a REFUND_ONLY provider
-                  // quotes 0 for PREFUNDED yet still reimburses at claim, so it must stay
-                  // recommendable instead of being dropped as zero-coverage.
-                  const modes = await safe(() =>
-                    view.quoteSubsidyModes(
-                      node,
-                      payerAddr,
-                      jobType,
-                      tokenAddr,
-                      amount,
-                      subsidyNeeded,
-                      tokenDecimals
-                    )
-                  )
-                  const prefunded = modes?.find((m) => m.mode === SubsidyMode.PREFUNDED)
-                  const reimburse = modes?.find(
-                    (m) => m.mode === SubsidyMode.REIMBURSEMENT
-                  )
-                  const chosen =
-                    prefunded && Number(prefunded.subsidy) > 0
-                      ? prefunded
-                      : reimburse && Number(reimburse.subsidy) > 0
-                        ? reimburse
-                        : (prefunded ?? reimburse ?? null)
-                  if (chosen) {
-                    subsidy = chosen.subsidy
-                    bonus = chosen.bonus
-                    mode = SubsidyMode[chosen.mode] ?? String(chosen.mode)
-                  }
-                } else {
-                  // v1 provider: claim-time REIMBURSEMENT is the only quote available.
-                  const quote = await safe(() =>
-                    view.quoteSubsidy(
-                      node,
-                      payerAddr,
-                      jobType,
-                      tokenAddr,
-                      amount,
-                      subsidyNeeded,
-                      tokenDecimals
-                    )
-                  )
-                  if (quote) {
-                    subsidy = quote.subsidy
-                    bonus = quote.bonus
-                  }
-                }
-              }
-              return {
-                address: getAddress(addr),
-                subsidyKind: kind === null ? null : (SubsidyKind[kind] ?? String(kind)),
-                eligible,
-                isNodeAllowed,
-                isUserAllowed,
-                isJobTypeSubsidized,
-                mode,
-                subsidy,
-                bonus
-              }
-            } catch (error) {
-              return {
-                address: addr,
-                eligible: false,
-                error: stringifyError(error),
-                subsidy: '0',
-                bonus: '0'
-              }
-            }
-          })
-        )
-
-        // Rank eligible, positive-coverage providers by subsidy desc; greedily fill until the
-        // requested subsidy is met, capped at the escrow's maxSponsorsPerLock.
-        const needed = Number(subsidyNeeded)
-        const ranked = candidates
-          .filter((c) => c.eligible && Number(c.subsidy) > 0)
-          .sort((a, b) => Number(b.subsidy) - Number(a.subsidy))
-        const recommended: string[] = []
-        let total = 0
-        for (const candidate of ranked) {
-          if (recommended.length >= cap) break
-          recommended.push(candidate.address)
-          total += Number(candidate.subsidy)
-          if (Number.isFinite(needed) && total >= needed) break
-        }
-
-        return commandResultPayload('subsidy_recommend', {
-          chainId,
-          node: nodeAddress,
-          subsidyProviderFilter,
-          maxSponsorsPerLock: cap,
-          subsidyNeeded,
-          recommended,
-          projectedTotalSubsidy: String(total),
-          meetsSubsidyNeeded: Number.isFinite(needed) ? total >= needed : null,
-          candidates
+        const node = parseNodeTarget(args.nodeId, args.multiaddress)
+        // Hand the lib a provider that remembers the environments it reads, so the minimum
+        // check below runs on the SAME env data the estimate was priced from (no second read
+        // that could fail on its own).
+        const captured = captureEnvironments()
+        const estimate = await estimateJobSubsidy({
+          signer: getVoidSigner(evmRegistry, args.chainId) as any,
+          chainId: args.chainId,
+          payer: args.payer,
+          node,
+          token: args.token,
+          environmentId: args.environment,
+          resources: args.resources,
+          durationSeconds: args.duration,
+          jobType: args.jobType,
+          container: {
+            image: args.image,
+            tag: args.tag,
+            checksum: args.checksum,
+            dockerfile: args.dockerfile
+          },
+          // The node's own service predicate; for compute the caller supplies the flag.
+          hasCustomEntrypoint:
+            args.hasCustomEntrypoint === true ||
+            isNonEmpty(args.dockerEntrypoint) ||
+            isNonEmpty(args.dockerCmd),
+          queueMaxWaitTime: args.queueMaxWaitTime,
+          customSubsidyProviders: args.customSubsidyProviders,
+          subsidyNeeded: args.subsidyNeeded,
+          tokenDecimals: args.tokenDecimals,
+          provider: captured.provider,
+          signal: AbortSignal.timeout(timeoutMs(args.timeout))
         })
+        return commandResultPayload(
+          'subsidy_recommend',
+          describeSubsidyEstimate(
+            estimate,
+            minimumResourceWarnings(
+              captured.environments(),
+              args.environment,
+              args.resources
+            )
+          )
+        )
       } catch (error) {
         return { ...textContent(stringifyError(error)), isError: true }
       }
     }
   )
+}
+
+/**
+ * A provider façade that behaves exactly like `base` but remembers the last
+ * `getComputeEnvironments` result, so a caller of `estimateJobSubsidy` can inspect the very env
+ * data the estimate used. Exported for unit tests.
+ */
+export function captureEnvironments(base: SubsidyNodeProvider = ProviderInstance): {
+  provider: SubsidyNodeProvider
+  environments: () => ComputeEnvironment[] | undefined
+} {
+  let seen: ComputeEnvironment[] | undefined
+  const provider = new Proxy(base, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target)
+      if (typeof value !== 'function') return value
+      if (prop !== 'getComputeEnvironments') return value.bind(target)
+      return async (...callArgs: unknown[]) => {
+        const envs = await value.apply(target, callArgs)
+        if (Array.isArray(envs)) seen = envs
+        return envs
+      }
+    }
+  })
+  return { provider, environments: () => seen }
+}
+
+/**
+ * The lib prices `resources` exactly as given, but the node raises each one to the env's
+ * advertised `min` before billing — so an under-minimum request yields cost / escrowNeeded
+ * figures that are too low. Returns the same warnings `estimateServiceCost` gives, or — when the
+ * env data is not available to check against — a warning saying the check did NOT run, so a
+ * possibly understated estimate is never returned silently. Exported for unit tests.
+ */
+export function minimumResourceWarnings(
+  envs: ComputeEnvironment[] | undefined,
+  environmentId: string,
+  resources: ComputeResourceRequest[]
+): string[] {
+  const env = envs?.find((e) => e.id === environmentId)
+  if (env) return resourceMinimumWarnings(env, resources)
+  return [
+    `RESOURCE MINIMUMS NOT CHECKED: the data for env "${environmentId}" was not available, so ` +
+      `amounts below its per-resource minimums could not be detected. The node bills at its ` +
+      `minimums — if any requested amount is below them, cost and escrow figures here are too ` +
+      `low. Compare \`resources\` against the env's advertised \`min\` values before relying on them.`
+  ]
+}
+
+/**
+ * `estimateJobSubsidy` result as the tool returns it: enum values replaced by their names, and
+ * each provider flattened to one compact row (ineligible candidates carry no quotes — they are
+ * all zero). `extraWarnings` (on-mcp's own, e.g. under-minimum resources) are listed first.
+ * Exported for unit tests.
+ */
+export function describeSubsidyEstimate(
+  estimate: JobSubsidyEstimate,
+  extraWarnings: string[] = []
+) {
+  const scenario = (s: JobSubsidyScenario) => ({
+    ...s,
+    mode: SubsidyMode[s.mode] ?? String(s.mode)
+  })
+  return {
+    ...estimate,
+    warnings: [...extraWarnings, ...estimate.warnings],
+    providers: estimate.providers.map((p) => ({
+      address: p.address,
+      subsidyKind:
+        p.subsidyKind === null
+          ? null
+          : (SubsidyKind[p.subsidyKind] ?? String(p.subsidyKind)),
+      version: p.version,
+      isV2: p.isV2,
+      eligible: p.eligible,
+      ...(p.dropped ? { dropped: p.dropped, reason: p.reason } : {}),
+      gates: p.gates,
+      ...(p.eligible ? { quotes: p.quotes } : {})
+    })),
+    scenarios: {
+      reimbursement: scenario(estimate.scenarios.reimbursement),
+      prefunded: scenario(estimate.scenarios.prefunded)
+    }
+  }
 }

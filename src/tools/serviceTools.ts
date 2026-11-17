@@ -1,6 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod/v4'
-import { PROTOCOL_COMMANDS } from '@oceanprotocol/lib'
+import {
+  estimateServiceCost as estimateCost,
+  filterSubsidyByAllowedImages,
+  isNonEmpty,
+  PROTOCOL_COMMANDS,
+  serviceMinLockSeconds,
+  toRawAmount
+} from '@oceanprotocol/lib'
 import type {
   ComputeEnvironment,
   ComputeResourceRequest,
@@ -8,7 +15,8 @@ import type {
   ServiceJob,
   ServiceRestartParams,
   ServiceStartParams,
-  ServiceTemplatePublic
+  ServiceTemplatePublic,
+  SubsidyImageContainer
 } from '@oceanprotocol/lib'
 
 import { NodeClient } from '../clients/nodeClient.js'
@@ -20,7 +28,6 @@ import {
   DEFAULT_PARALLEL_JOBS,
   getTokenDecimals,
   runEscrowPreflight,
-  serviceMinLockSeconds,
   type EscrowPreflightResult
 } from './escrowPreflight.js'
 import {
@@ -49,13 +56,11 @@ import {
   buildServicePaymentInfo,
   decorateServiceJob,
   describeUserDataKeys,
-  estimateServiceCost as estimateCost,
   parseUserData,
   resolveServiceResources,
   resourceMinimumWarnings,
   resourceShortfallReason,
   templateToServiceStartArgs,
-  toRawAmount,
   type ResourceRequirement
 } from './serviceCost.js'
 
@@ -192,6 +197,16 @@ export async function serviceEscrowGate(params: {
   token: string
   resources: ComputeResourceRequest[]
   durationSeconds: number
+  /**
+   * The container being started. When given, caller-selected `subsidyProviders` go through the
+   * node's image gate (`status.subsidyProviderAllowedImages`) first, so a provider the node would
+   * drop for this image no longer relaxes the payer-funded check. Omit where the spec is not
+   * known client-side — the selection is then forwarded unfiltered, as before.
+   */
+  container?: SubsidyImageContainer & {
+    dockerCmd?: string[]
+    dockerEntrypoint?: string[]
+  }
   runPreflight?: typeof runEscrowPreflight
 }): Promise<ReturnType<typeof structuredError> | undefined> {
   const { command, nodeClient, evmRegistry, node, timeout, args, env } = params
@@ -202,6 +217,7 @@ export async function serviceEscrowGate(params: {
   if (!payer) return undefined
 
   let preflight: EscrowPreflightResult
+  let imageGateDropped: string[] = []
   try {
     const cost = await resolveCost({
       evmRegistry,
@@ -223,15 +239,33 @@ export async function serviceEscrowGate(params: {
     // Free service: nothing to lock, so there is nothing to gate on.
     if (!built.escrowRequired) return undefined
 
+    // Image gate (ocean-node #1602), using the lib's verbatim port of the node's matcher: a
+    // selected provider whose allowlist does not cover this image — or any allowlisted provider
+    // when the entrypoint/cmd is overridden — is silently dropped by the node, so it cannot
+    // sponsor the lock and must not relax the payer-funded gate below.
+    let { subsidyProviders } = args
+    if (params.container && subsidyProviders?.length) {
+      const gated = filterSubsidyByAllowedImages(
+        subsidyProviders,
+        params.container,
+        isNonEmpty(params.container.dockerEntrypoint) ||
+          isNonEmpty(params.container.dockerCmd),
+        status?.subsidyProviderAllowedImages
+      )
+      subsidyProviders = gated.kept
+      imageGateDropped = gated.dropped
+    }
+
     preflight = await runPreflight({
       evmRegistry,
       payer,
       payment: built.payment,
       maxJobDuration: params.durationSeconds,
       parallelJobs: args.parallelJobs ?? DEFAULT_PARALLEL_JOBS,
-      // Forward the same tri-state selection sent to the node: a sponsored lock relaxes the
-      // payer-funded gate (a fully-sponsored user can start/extend with zero deposit).
-      subsidyProviders: args.subsidyProviders,
+      // Forward the same tri-state selection sent to the node (minus image-gated providers): a
+      // sponsored lock relaxes the payer-funded gate (a fully-sponsored user can start/extend
+      // with zero deposit).
+      subsidyProviders,
       caller: 'service_gate'
     })
   } catch {
@@ -248,6 +282,17 @@ export async function serviceEscrowGate(params: {
       'Locking step after already returning a serviceId. Resolve it (dashboard Manage escrow, or ' +
       'escrow_preflight with a privateKey for auto-fix) then retry. Pass skipEscrowPreflight=true ' +
       'to bypass this gate. Note the amount below is an *estimate* — there is no server-side quote.',
+    ...(imageGateDropped.length
+      ? {
+          subsidyProvidersDroppedByImageGate: imageGateDropped,
+          imageGateNote:
+            "These selected subsidy providers restrict sponsorship to an image allowlist (the node's " +
+            '`subsidyProviderAllowedImages`) that this container does not match — a custom ' +
+            'dockerEntrypoint/dockerCmd or a dockerfile build never matches — so the node would ' +
+            'drop them and they cannot fund this lock. Run subsidy_recommend for this image to see ' +
+            'which providers apply.'
+        }
+      : {}),
     preflight
   })
 }
@@ -727,7 +772,8 @@ ${P2P_AUTH_SIGNING_POINTER}
           .describe(
             'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
               'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
-              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+              '(subject to the node policy). Get the list from subsidy_recommend (pass a scenario `selected` ' +
+              'verbatim — it applies the node image gate and quotes each provider).'
           ),
         parallelJobs: z
           .number()
@@ -805,7 +851,15 @@ ${P2P_AUTH_SIGNING_POINTER}
           chainId: args.payment.chainId,
           token: args.payment.token,
           resources,
-          durationSeconds: args.duration
+          durationSeconds: args.duration,
+          container: {
+            image: args.image,
+            tag: args.tag,
+            checksum: args.checksum,
+            dockerfile: args.dockerfile,
+            dockerCmd: args.dockerCmd,
+            dockerEntrypoint: args.dockerEntrypoint
+          }
         })
         if (gate) return gate
 
@@ -1046,7 +1100,8 @@ ${P2P_AUTH_SIGNING_POINTER}`,
           .describe(
             'Consumer-selected subsidy provider contract addresses (Escrow v2 / ocean-node #1485). ' +
               'Tri-state: omit = use the node default, [] = no subsidy, populated = only these ' +
-              '(subject to the node policy). Discover candidates with subsidy_get_info / subsidy_quote.'
+              '(subject to the node policy). Get the list from subsidy_recommend (pass a scenario `selected` ' +
+              'verbatim — it applies the node image gate and quotes each provider).'
           ),
         parallelJobs: z.number().int().positive().optional(),
         skipEscrowPreflight: z

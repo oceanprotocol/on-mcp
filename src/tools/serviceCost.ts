@@ -1,5 +1,5 @@
 import { gzipSync } from 'node:zlib'
-import { parseUnits } from 'ethers'
+import { serviceMinLockSeconds } from '@oceanprotocol/lib'
 import type {
   ComputeEnvironment,
   ComputeResource,
@@ -9,13 +9,15 @@ import type {
   UserConfigurableEnvVar
 } from '@oceanprotocol/lib'
 
-import { serviceMinLockSeconds, type PaymentInfo } from './escrowPreflight.js'
+import type { PaymentInfo } from './escrowPreflight.js'
 import { isServiceTerminal, serviceStatusLabel } from './serviceSchemas.js'
 
 /**
- * Pure, network-free helpers for the Service-on-Demand tools — ported from ocean-cli's
- * `src/serviceHelpers.ts`, with the divergences from ocean-node's own arithmetic corrected
- * (see `estimateServiceCost`). No MCP or I/O dependencies, so all of this is unit-testable.
+ * Pure, network-free helpers for the Service-on-Demand tools. No MCP or I/O dependencies, so
+ * all of this is unit-testable.
+ *
+ * The cost arithmetic itself (`estimateServiceCost`, `toRawAmount`, `serviceMinLockSeconds`)
+ * lives in `@oceanprotocol/lib` (>= 10.1.0) — import it from there, do not reimplement it here.
  */
 
 /**
@@ -118,122 +120,6 @@ export function resolveServiceResources(
   return (env.resources ?? [])
     .filter((r) => r.id === 'cpu' || r.id === 'ram')
     .map((r) => ({ id: r.id, amount: 1 }))
-}
-
-export type ServiceCostEstimate = {
-  /** Cost in human token units, computed with the node's own arithmetic. */
-  costHuman: number
-  /** `feeToken` **verbatim as the env advertised it** — send this back, not the caller's casing. */
-  feeToken: string
-  /** Duration after the `env.minServiceDuration` floor clamp. */
-  effectiveDurationSeconds: number
-  /** `ceil(effectiveDuration / 60)` — what the node actually bills. */
-  minutesBilled: number
-  resources: ComputeResourceRequest[]
-  /** Resource ids the env has no price for; the node prices these at 0 silently. */
-  unpricedResourceIds: string[]
-}
-
-/**
- * Reimplementation of ocean-node's `C2DEngine.calculateResourcesCost` — there is no
- * server-side quote command for services, so cost has to be derived client-side.
- *
- * Two corrections vs ocean-cli's estimator, both of which caused **under**-estimation:
- *  1. the `env.minServiceDuration` floor clamp the node applies to services is applied here too
- *     (services floor on `minServiceDuration`, distinct from compute jobs' `minJobDuration`);
- *  2. `feeToken` is matched case-insensitively for *searching*, but the env's own spelling is
- *     returned in `feeToken` — the node compares with `===`, so a re-cased copy of the user's
- *     input would pass our check and then fail at the node with `400 No pricing configured`.
- *
- * Returns null when the env advertises no fee schedule for `(chainId, token)`.
- */
-export function estimateServiceCost(
-  env: ComputeEnvironment,
-  chainId: number,
-  token: string,
-  resources: ComputeResourceRequest[],
-  durationSeconds: number
-): ServiceCostEstimate | null {
-  const schedules = env.fees?.[String(chainId)]
-  const schedule = schedules?.find(
-    (f) => f.feeToken?.toLowerCase() === token.toLowerCase()
-  )
-  if (!schedule) return null
-
-  const effectiveDurationSeconds = Math.max(durationSeconds, env.minServiceDuration ?? 0)
-  const minutesBilled = Math.ceil(effectiveDurationSeconds / 60)
-
-  const unpricedResourceIds: string[] = []
-  let costHuman = 0
-  for (const request of resources) {
-    const entry = schedule.prices?.find((p) => p.id === request.id)
-    // ocean-node's getResourcePrice() returns 0 for an unknown id, silently — mirror that,
-    // but tell the caller which ids were free so a typo does not read as a bargain.
-    if (!entry) unpricedResourceIds.push(request.id)
-    costHuman += Number(entry?.price ?? 0) * request.amount * minutesBilled
-  }
-
-  return {
-    costHuman,
-    feeToken: schedule.feeToken,
-    effectiveDurationSeconds,
-    minutesBilled,
-    resources,
-    unpricedResourceIds
-  }
-}
-
-/**
- * Float64 → plain decimal string with the binary-representation noise stripped.
- *
- * `toFixed(18)` is not usable here: it prints the *exact* binary value, so `123.456` becomes
- * `123.456000000000003070` and that error lands in the raw token amount. `toPrecision(15)` stays
- * inside float64's reliable significant-digit range, but emits exponent notation for very small
- * or very large values, which `parseUnits` rejects — so expand it by hand.
- */
-function toPlainDecimalString(value: number, significantDigits = 15): string {
-  const s = value.toPrecision(significantDigits)
-  if (!/e/i.test(s)) return s
-
-  const [mantissa, expPart] = s.split(/e/i)
-  const exponent = Number(expPart)
-  const negative = mantissa.startsWith('-')
-  const [intPart, fracPart = ''] = mantissa.replace('-', '').split('.')
-  const digits = intPart + fracPart
-  const pointPosition = intPart.length + exponent
-
-  let plain: string
-  if (pointPosition <= 0) {
-    plain = `0.${'0'.repeat(-pointPosition)}${digits}`
-  } else if (pointPosition >= digits.length) {
-    plain = digits + '0'.repeat(pointPosition - digits.length)
-  } else {
-    plain = `${digits.slice(0, pointPosition)}.${digits.slice(pointPosition)}`
-  }
-  return negative ? `-${plain}` : plain
-}
-
-/**
- * Human token amount → raw base units as a **decimal string**. Never a JS number: an
- * 18-decimal amount is ~1e20 and would silently lose precision past Number.MAX_SAFE_INTEGER.
- *
- * When the value has more fraction digits than the token has decimals, the remainder is rounded
- * **up** by one base unit. Sub-wei rounding is economically irrelevant either way, but an
- * estimate that rounds down feeds a too-small authorization into `escrow_preflight`, and
- * under-authorizing is the failure this whole path is built to avoid.
- */
-export function toRawAmount(costHuman: number, decimals: number): string {
-  if (!Number.isFinite(costHuman) || costHuman < 0) {
-    throw new Error(`Cannot convert cost ${costHuman} to raw token units`)
-  }
-  const plain = toPlainDecimalString(costHuman)
-  const [intPart, fracPart = ''] = plain.split('.')
-  const kept = fracPart.slice(0, decimals)
-  const dropped = fracPart.slice(decimals)
-
-  let raw = parseUnits(`${intPart}.${kept || '0'}`, decimals)
-  if (/[1-9]/.test(dropped)) raw += 1n
-  return raw.toString()
 }
 
 export type ServicePaymentBuild =
