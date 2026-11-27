@@ -54,7 +54,6 @@ import {
 import {
   availableFor,
   buildServicePaymentInfo,
-  comfyMcpUrl,
   decorateServiceJob,
   describeUserDataKeys,
   parseUserData,
@@ -75,6 +74,8 @@ type Params = {
 /** Bounded convenience wait inside serviceStatus — kept well inside MCP client timeouts. */
 const MAX_WAIT_FOR_RUNNING_SECONDS = 120
 const WAIT_POLL_INTERVAL_MS = 5000
+/** Ocean MCP default port: every ComfyUI template serves its MCP server on it. */
+const COMFY_MCP_PORT = 8189
 const COMFY_MCP_NOTE =
   'comfyMcpUrl is the MCP server of this ComfyUI service: it runs the service workflows. Give the url ' +
   'to the user and ask if they want to use it. To connect, add it to an MCP client as Streamable HTTP ' +
@@ -985,18 +986,12 @@ ${P2P_AUTH_SIGNING_POINTER}`,
           waitTimedOut = !settled(current)
         }
 
-        let decorated = (jobs ?? []).map(decorateServiceJob)
-        if (jobs?.some((j) => j.status === 40)) {
-          const templates = await nodeClient.getServiceTemplates(node, ms).catch((e) => {
-            console.error(`serviceStatus: no templates: ${stringifyError(e)}`)
-            return [] as ServiceTemplatePublic[]
-          })
-          decorated = decorated.map((d, i) =>
-            jobs[i].status === 40
-              ? { ...d, comfyMcpUrl: comfyMcpUrl(jobs[i], templates) }
-              : d
-          )
-        }
+        const decorated = (jobs ?? []).map((j) => {
+          const url =
+            j.status === 40 &&
+            j.endpoints.find((ep) => ep.containerPort === COMFY_MCP_PORT)?.url
+          return { ...decorateServiceJob(j), ...(url && { comfyMcpUrl: `${url}/mcp` }) }
+        })
         return commandResultPayload('serviceStatus', {
           services: decorated,
           ...(decorated.some((d) => d.comfyMcpUrl) && { comfyMcpNote: COMFY_MCP_NOTE }),

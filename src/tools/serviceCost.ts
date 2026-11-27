@@ -415,12 +415,3 @@ export function templateToServiceStartArgs(template: ServiceTemplatePublic): {
     notes
   }
 }
-
-/** ComfyUI templates serve MCP on their second exposed port. */
-export function comfyMcpUrl(job: ServiceJob, templates: ServiceTemplatePublic[]) {
-  const template = templates.find((t) => t.image === job.image && t.tag === job.tag)
-  if ((template as { service?: string })?.service !== 'comfyui') return undefined
-  const port = template?.exposedPorts[1]
-  const url = job.endpoints.find((ep) => ep.containerPort === port)?.url
-  return url && `${url}/mcp`
-}
