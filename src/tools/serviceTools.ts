@@ -74,6 +74,16 @@ type Params = {
 /** Bounded convenience wait inside serviceStatus — kept well inside MCP client timeouts. */
 const MAX_WAIT_FOR_RUNNING_SECONDS = 120
 const WAIT_POLL_INTERVAL_MS = 5000
+/** Ocean MCP default port: every ComfyUI template serves its MCP server on it. */
+const COMFY_MCP_PORT = 8189
+const COMFY_MCP_NOTE =
+  'comfyMcpUrl is the MCP server of this ComfyUI service: it runs the service workflows. Give the url ' +
+  'to the user and ask if they want to use it. To connect, add it to an MCP client as Streamable HTTP ' +
+  'with the header "Authorization: Bearer <SERVICE_PASSWORD>", where SERVICE_PASSWORD is the one set ' +
+  'at serviceStart. For example: claude mcp add --transport http comfy <comfyMcpUrl> --header ' +
+  '"Authorization: Bearer <SERVICE_PASSWORD>". The url returns 502 for some minutes after start, ' +
+  'while the MCP server installs: on 502 or a failed connection, wait about 30 s and retry, several ' +
+  'times, until the MCP server answers.'
 /** Default log window. Without it the node streams the container's whole history. */
 const DEFAULT_LOG_SINCE = '5m'
 const DEFAULT_LOG_MAX_BYTES = 256 * 1024
@@ -976,9 +986,15 @@ ${P2P_AUTH_SIGNING_POINTER}`,
           waitTimedOut = !settled(current)
         }
 
-        const decorated = (jobs ?? []).map(decorateServiceJob)
+        const decorated = (jobs ?? []).map((j) => {
+          const url =
+            j.status === 40 &&
+            j.endpoints.find((ep) => ep.containerPort === COMFY_MCP_PORT)?.url
+          return { ...decorateServiceJob(j), ...(url && { comfyMcpUrl: `${url}/mcp` }) }
+        })
         return commandResultPayload('serviceStatus', {
           services: decorated,
+          ...(decorated.some((d) => d.comfyMcpUrl) && { comfyMcpNote: COMFY_MCP_NOTE }),
           ...(args.waitForRunning
             ? {
                 waitedSeconds: Math.round(waitedMs / 1000),
